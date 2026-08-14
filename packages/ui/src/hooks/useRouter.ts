@@ -1,10 +1,11 @@
 import React from 'react';
 import { useSessionUIStore } from '@/sync/session-ui-store';
 import { useUIStore } from '@/stores/useUIStore';
-import { parseRoute, updateBrowserURL, hasRouteParams } from '@/lib/router';
+import { parseRoute, updateBrowserURL, hasRouteParams, RECENT_SESSION_TOKEN } from '@/lib/router';
 import type { RouteState, AppRouteState } from '@/lib/router';
 import type { MainTab } from '@/stores/useUIStore';
 import { resolveSettingsSlug } from '@/lib/settings/metadata';
+import { resolveRecentSession } from '@/lib/recentSession';
 import { isEmbeddedSessionChat } from '@/components/layout/contextPanelEmbeddedChat';
 
 /**
@@ -68,10 +69,30 @@ export function useRouter(): void {
       try {
         // 1. Apply session first (may trigger async operations)
         if (route.sessionId) {
-          const currentSessionId = useSessionUIStore.getState().currentSessionId;
-          if (route.sessionId !== currentSessionId) {
-            const directoryHint = useSessionUIStore.getState().getDirectoryForSession(route.sessionId);
-            setCurrentSession(route.sessionId, directoryHint);
+          let targetSessionId: string | null = route.sessionId;
+          let directoryHint: string | null | undefined;
+
+          if (route.sessionId === RECENT_SESSION_TOKEN) {
+            // `?session=recent` resolves to the last active session for this
+            // runtime. When there is no usable persisted session (never opened
+            // one, or the persisted one is gone), fall through to the default
+            // new-session behavior without opening anything.
+            const resolved = await resolveRecentSession();
+            if (!resolved) {
+              targetSessionId = null;
+            } else {
+              targetSessionId = resolved.sessionId;
+              directoryHint = resolved.directory;
+            }
+          } else {
+            directoryHint = useSessionUIStore.getState().getDirectoryForSession(targetSessionId);
+          }
+
+          if (targetSessionId) {
+            const currentSessionId = useSessionUIStore.getState().currentSessionId;
+            if (targetSessionId !== currentSessionId) {
+              setCurrentSession(targetSessionId, directoryHint ?? undefined);
+            }
           }
         }
 
