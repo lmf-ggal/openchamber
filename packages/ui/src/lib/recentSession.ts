@@ -1,11 +1,13 @@
 import { getRuntimeKey } from '@/lib/runtime-switch';
-import { refreshGlobalSessions, resolveGlobalSessionDirectory } from '@/stores/useGlobalSessionsStore';
+import { refreshGlobalSessions, resolveGlobalSessionDirectory, useGlobalSessionsStore } from '@/stores/useGlobalSessionsStore';
 import { clearLastActiveSession, readLastActiveSession } from '@/sync/last-session-cache';
 
 export type ResolvedRecentSession = {
   sessionId: string;
   directory: string | null;
 };
+
+const RECENT_SESSION_RESOLUTION_TIMEOUT_MS = 6_000;
 
 /**
  * Resolve the `?session=recent` URL token to the last session that was active
@@ -23,8 +25,21 @@ export async function resolveRecentSession(): Promise<ResolvedRecentSession | nu
     return null;
   }
 
-  const snapshot = await refreshGlobalSessions().catch(() => null);
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  const snapshot = await Promise.race([
+    refreshGlobalSessions().catch(() => null),
+    new Promise<null>((resolve) => {
+      timeout = setTimeout(() => resolve(null), RECENT_SESSION_RESOLUTION_TIMEOUT_MS);
+    }),
+  ]);
+  if (timeout !== undefined) {
+    clearTimeout(timeout);
+  }
   if (!snapshot) {
+    return null;
+  }
+
+  if (useGlobalSessionsStore.getState().status === 'error') {
     return null;
   }
 

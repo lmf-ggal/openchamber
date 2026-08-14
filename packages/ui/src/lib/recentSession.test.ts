@@ -1,7 +1,12 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from 'bun:test';
 
 const clearCalls: string[] = [];
-const snapshotCalls: Array<{ reject: boolean; sessions: Array<{ id: string; directory?: string | null }> }> = [];
+const snapshotCalls: Array<{
+  reject: boolean;
+  pending?: boolean;
+  sessions: Array<{ id: string; directory?: string | null }>;
+}> = [];
+let storeStatus: 'ready' | 'error' = 'ready';
 
 type SnapshotResult = { activeSessions: Array<{ id: string; directory?: string | null }> };
 
@@ -22,11 +27,15 @@ mock.module('@/sync/last-session-cache', () => ({
 mock.module('@/stores/useGlobalSessionsStore', () => ({
   refreshGlobalSessions: async (): Promise<SnapshotResult> => {
     const next = snapshotCalls.shift();
+    if (next?.pending) return new Promise<SnapshotResult>(() => undefined);
     if (next?.reject) throw new Error('network down');
     return { activeSessions: next?.sessions ?? [] };
   },
   resolveGlobalSessionDirectory: (session: { directory?: string | null; project?: { worktree?: string | null } | null }) =>
     session.directory ?? session.project?.worktree ?? null,
+  useGlobalSessionsStore: {
+    getState: () => ({ status: storeStatus }),
+  },
 }));
 
 const setPersisted = (sessionId: string | null, directory: string | null = null) => {
@@ -42,6 +51,7 @@ beforeEach(() => {
   setPersisted(null);
   clearCalls.length = 0;
   snapshotCalls.length = 0;
+  storeStatus = 'ready';
 });
 
 afterEach(() => {
@@ -90,4 +100,24 @@ describe('resolveRecentSession', () => {
     expect(await resolveRecentSession()).toBeNull();
     expect(clearCalls).toEqual([]);
   });
+
+  test('keeps the pointer when the store reports a failed snapshot', async () => {
+    setPersisted('ses_active', '/repo/a');
+    storeStatus = 'error';
+    queueSnapshot([]);
+    const { resolveRecentSession } = await import('./recentSession');
+    expect(await resolveRecentSession()).toBeNull();
+    expect(clearCalls).toEqual([]);
+  });
+
+  test('returns when snapshot resolution exceeds the startup timeout', async () => {
+    setPersisted('ses_active', '/repo/a');
+    storeStatus = 'ready';
+    snapshotCalls.push({ reject: false, pending: true, sessions: [] });
+    const { resolveRecentSession } = await import('./recentSession');
+    const startedAt = Date.now();
+    expect(await resolveRecentSession()).toBeNull();
+    expect(Date.now() - startedAt).toBeGreaterThanOrEqual(5_900);
+    expect(clearCalls).toEqual([]);
+  }, 10_000);
 });
