@@ -36,6 +36,7 @@ export async function resolveRouteSessionToken(
 }
 
 const RECENT_SESSION_RESOLUTION_TIMEOUT_MS = 6_000;
+const RECENT_SESSION_RESOLUTION_ABSOLUTE_CAP_MS = 30_000;
 
 /**
  * Resolve the `?session=recent` URL token to the last session that was active
@@ -64,9 +65,18 @@ export async function resolveRecentSession(): Promise<ResolvedRecentSession | nu
   void refreshGlobalSessions().catch(() => null);
 
   const deadline = Date.now() + RECENT_SESSION_RESOLUTION_TIMEOUT_MS;
+  const absoluteCap = Date.now() + RECENT_SESSION_RESOLUTION_ABSOLUTE_CAP_MS;
   for (;;) {
     const state = useGlobalSessionsStore.getState();
-    if (state.status === 'error') {
+    if (Date.now() >= absoluteCap) {
+      return null;
+    }
+    // A transient `error` right after boot (the first refresh attempt fails
+    // while the SDK is still connecting on a slow first load, e.g. mobile web)
+    // is not authoritative — only give up once the SDK is connected, when an
+    // `error` really means the backend is unreachable. Non-connected errors are
+    // preserved for the connected retry below.
+    if (state.status === 'error' && useConfigStore.getState().isConnected) {
       return null;
     }
     if (state.status === 'ready') {

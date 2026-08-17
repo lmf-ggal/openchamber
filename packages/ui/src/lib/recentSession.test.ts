@@ -200,6 +200,25 @@ describe('resolveRecentSession', () => {
     expect(clearCalls).toEqual([]);
   }, 10_000);
 
+  test('recovers from a transient boot error once the SDK connects', async () => {
+    setPersisted('ses_active', '/repo/a');
+    // First refresh attempt fails while the SDK is still connecting (slow
+    // mobile boot) and flips the store to `error`; the resolve must not treat
+    // that as authoritative while disconnected.
+    storeStatus = 'error';
+    sdkConnected = false;
+    queueSnapshot([{ id: 'ses_active', directory: '/repo/c' }], { commit: false });
+    setTimeout(() => {
+      sdkConnected = true;
+      storeStatus = 'ready';
+      committedSessions = [{ id: 'ses_active', directory: '/repo/c' }];
+    }, 50);
+    const { resolveRecentSession } = await import('./recentSession');
+    const resolved = await resolveRecentSession();
+    expect(resolved).toEqual({ sessionId: 'ses_active', directory: '/repo/c' });
+    expect(clearCalls).toEqual([]);
+  }, 10_000);
+
   test('still gives up once connected when the snapshot never becomes ready', async () => {
     setPersisted('ses_active', '/repo/a');
     storeStatus = 'loading';
