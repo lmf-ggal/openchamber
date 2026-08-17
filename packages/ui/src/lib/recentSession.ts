@@ -1,5 +1,6 @@
 import { getRuntimeKey } from '@/lib/runtime-switch';
 import { RECENT_SESSION_TOKEN } from '@/lib/router';
+import { useConfigStore } from '@/stores/useConfigStore';
 import { refreshGlobalSessions, resolveGlobalSessionDirectory, useGlobalSessionsStore } from '@/stores/useGlobalSessionsStore';
 import { clearLastActiveSession, readLastActiveSession } from '@/sync/last-session-cache';
 
@@ -79,7 +80,13 @@ export async function resolveRecentSession(): Promise<ResolvedRecentSession | nu
         directory: resolveGlobalSessionDirectory(session) ?? persisted.directory,
       };
     }
-    if (Date.now() >= deadline) {
+    // On a slow first boot (mobile web in particular) the SDK connects only
+    // after several seconds, so the sessions load cannot reach `ready` within
+    // the resolve deadline. Don't let the deadline race the connection: pause
+    // the countdown until the SDK reports connected, mirroring the native
+    // mobile cold-launch restore which waits for `isConnected` too. The
+    // absolute cap still guards against an unreachable backend.
+    if (Date.now() >= deadline && useConfigStore.getState().isConnected) {
       return null;
     }
     await new Promise((resolve) => setTimeout(resolve, 50));

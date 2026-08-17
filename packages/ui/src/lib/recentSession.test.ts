@@ -27,6 +27,14 @@ mock.module('@/sync/last-session-cache', () => ({
   },
 }));
 
+let sdkConnected = true;
+
+mock.module('@/stores/useConfigStore', () => ({
+  useConfigStore: {
+    getState: () => ({ isConnected: sdkConnected }),
+  },
+}));
+
 mock.module('@/stores/useGlobalSessionsStore', () => ({
   refreshGlobalSessions: async (): Promise<SnapshotResult> => {
     const next = snapshotCalls.shift();
@@ -79,6 +87,7 @@ beforeEach(() => {
   snapshotCalls.length = 0;
   committedSessions = [];
   storeStatus = 'ready';
+  sdkConnected = true;
 });
 
 afterEach(() => {
@@ -162,6 +171,36 @@ describe('resolveRecentSession', () => {
   });
 
   test('returns when snapshot resolution exceeds the startup timeout', async () => {
+    setPersisted('ses_active', '/repo/a');
+    storeStatus = 'loading';
+    snapshotCalls.push({ reject: false, pending: true, sessions: [] });
+    const { resolveRecentSession } = await import('./recentSession');
+    const startedAt = Date.now();
+    expect(await resolveRecentSession()).toBeNull();
+    expect(Date.now() - startedAt).toBeGreaterThanOrEqual(5_900);
+    expect(clearCalls).toEqual([]);
+  }, 10_000);
+
+  test('keeps waiting past the deadline while the SDK is not connected yet', async () => {
+    setPersisted('ses_active', '/repo/a');
+    storeStatus = 'loading';
+    sdkConnected = false;
+    // The snapshot can only become ready once the SDK connects (slow mobile
+    // boot). Simulate the connection and the resulting committed snapshot
+    // arriving well after the 6s deadline would have expired.
+    setTimeout(() => {
+      sdkConnected = true;
+      committedSessions = [{ id: 'ses_active', directory: '/repo/c' }];
+      storeStatus = 'ready';
+    }, 50);
+    queueSnapshot([], { commit: false });
+    const { resolveRecentSession } = await import('./recentSession');
+    const resolved = await resolveRecentSession();
+    expect(resolved).toEqual({ sessionId: 'ses_active', directory: '/repo/c' });
+    expect(clearCalls).toEqual([]);
+  }, 10_000);
+
+  test('still gives up once connected when the snapshot never becomes ready', async () => {
     setPersisted('ses_active', '/repo/a');
     storeStatus = 'loading';
     snapshotCalls.push({ reject: false, pending: true, sessions: [] });
