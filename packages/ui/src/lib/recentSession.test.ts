@@ -6,7 +6,8 @@ const snapshotCalls: Array<{
   pending?: boolean;
   sessions: Array<{ id: string; directory?: string | null }>;
 }> = [];
-let storeStatus: 'ready' | 'error' = 'ready';
+let storeStatus: 'idle' | 'loading' | 'ready' | 'error' = 'ready';
+let committedSessions: Array<{ id: string; directory?: string | null }> = [];
 
 type SnapshotResult = { activeSessions: Array<{ id: string; directory?: string | null }> };
 
@@ -34,7 +35,7 @@ mock.module('@/stores/useGlobalSessionsStore', () => ({
   resolveGlobalSessionDirectory: (session: { directory?: string | null; project?: { worktree?: string | null } | null }) =>
     session.directory ?? session.project?.worktree ?? null,
   useGlobalSessionsStore: {
-    getState: () => ({ status: storeStatus }),
+    getState: () => ({ status: storeStatus, activeSessions: committedSessions }),
   },
 }));
 
@@ -51,6 +52,7 @@ beforeEach(() => {
   setPersisted(null);
   clearCalls.length = 0;
   snapshotCalls.length = 0;
+  committedSessions = [];
   storeStatus = 'ready';
 });
 
@@ -67,19 +69,21 @@ describe('resolveRecentSession', () => {
 
   test('returns the persisted session confirmed by the snapshot', async () => {
     setPersisted('ses_active', '/repo/a');
-    queueSnapshot([
+    committedSessions = [
       { id: 'ses_other', directory: '/repo/b' },
       { id: 'ses_active', directory: '/repo/c' },
-    ]);
+    ];
+    queueSnapshot([...committedSessions]);
     const { resolveRecentSession } = await import('./recentSession');
     const resolved = await resolveRecentSession();
     expect(resolved).toEqual({ sessionId: 'ses_active', directory: '/repo/c' });
     expect(clearCalls).toEqual([]);
   });
 
-  test('falls back to the persisted directory when the snapshot entry lacks one', async () => {
+  test('falls back to the persisted directory when the committed entry lacks one', async () => {
     setPersisted('ses_active', '/repo/a');
-    queueSnapshot([{ id: 'ses_active', directory: null }]);
+    committedSessions = [{ id: 'ses_active', directory: null }];
+    queueSnapshot([...committedSessions]);
     const { resolveRecentSession } = await import('./recentSession');
     const resolved = await resolveRecentSession();
     expect(resolved).toEqual({ sessionId: 'ses_active', directory: '/repo/a' });
@@ -87,7 +91,8 @@ describe('resolveRecentSession', () => {
 
   test('drops the stale pointer and returns null when the session is gone', async () => {
     setPersisted('ses_gone', '/repo/a');
-    queueSnapshot([{ id: 'ses_other', directory: '/repo/b' }]);
+    committedSessions = [{ id: 'ses_other', directory: '/repo/b' }];
+    queueSnapshot([...committedSessions]);
     const { resolveRecentSession } = await import('./recentSession');
     expect(await resolveRecentSession()).toBeNull();
     expect(clearCalls).toEqual(['test-runtime']);
@@ -95,6 +100,7 @@ describe('resolveRecentSession', () => {
 
   test('returns null when the snapshot fetch fails', async () => {
     setPersisted('ses_active', '/repo/a');
+    storeStatus = 'error';
     snapshotCalls.push({ reject: true, sessions: [] });
     const { resolveRecentSession } = await import('./recentSession');
     expect(await resolveRecentSession()).toBeNull();
@@ -110,9 +116,28 @@ describe('resolveRecentSession', () => {
     expect(clearCalls).toEqual([]);
   });
 
+  test('keeps the pointer when the snapshot is not authoritative (non-ready store status)', async () => {
+    setPersisted('ses_active', '/repo/a');
+    storeStatus = 'idle';
+    queueSnapshot([]);
+    const { resolveRecentSession } = await import('./recentSession');
+    expect(await resolveRecentSession()).toBeNull();
+    expect(clearCalls).toEqual([]);
+  });
+
+  test('restores from the committed store even when the refresh returns a stale empty snapshot', async () => {
+    setPersisted('ses_active', '/repo/a');
+    committedSessions = [{ id: 'ses_active', directory: '/repo/c' }];
+    queueSnapshot([]);
+    const { resolveRecentSession } = await import('./recentSession');
+    const resolved = await resolveRecentSession();
+    expect(resolved).toEqual({ sessionId: 'ses_active', directory: '/repo/c' });
+    expect(clearCalls).toEqual([]);
+  });
+
   test('returns when snapshot resolution exceeds the startup timeout', async () => {
     setPersisted('ses_active', '/repo/a');
-    storeStatus = 'ready';
+    storeStatus = 'loading';
     snapshotCalls.push({ reject: false, pending: true, sessions: [] });
     const { resolveRecentSession } = await import('./recentSession');
     const startedAt = Date.now();
@@ -120,4 +145,46 @@ describe('resolveRecentSession', () => {
     expect(Date.now() - startedAt).toBeGreaterThanOrEqual(5_900);
     expect(clearCalls).toEqual([]);
   }, 10_000);
+});
+
+describe('resolveRouteSessionToken', () => {
+  test('passes a plain session ID through with its directory hint', async () => {
+    const { resolveRouteSessionToken } = await import('./recentSession');
+    const resolved = await resolveRouteSessionToken(
+      'ses_plain',
+      async () => ({ sessionId: 'ses_recent', directory: '/repo/x' }),
+      (sessionId) => (sessionId === 'ses_plain' ? '/repo/plain' : null),
+    );
+    expect(resolved).toEqual({ sessionId: 'ses_plain', directoryHint: '/repo/plain' });
+  });
+
+  test('resolves the recent token to the last active session', async () => {
+    const { resolveRouteSessionToken } = await import('./recentSession');
+    const resolved = await resolveRouteSessionToken(
+      'recent',
+      async () => ({ sessionId: 'ses_active', directory: '/repo/a' }),
+      () => null,
+    );
+    expect(resolved).toEqual({ sessionId: 'ses_active', directoryHint: '/repo/a' });
+  });
+
+  test('falls through to the draft when the recent token resolves to nothing', async () => {
+    const { resolveRouteSessionToken } = await import('./recentSession');
+    const resolved = await resolveRouteSessionToken('recent', async () => null, () => null);
+    expect(resolved).toBeNull();
+  });
+
+  test('does not resolve the recent token when the route uses a plain session ID', async () => {
+    const { resolveRouteSessionToken } = await import('./recentSession');
+    let recentResolutionAttempted = false;
+    await resolveRouteSessionToken(
+      'ses_plain',
+      async () => {
+        recentResolutionAttempted = true;
+        return null;
+      },
+      () => null,
+    );
+    expect(recentResolutionAttempted).toBe(false);
+  });
 });
