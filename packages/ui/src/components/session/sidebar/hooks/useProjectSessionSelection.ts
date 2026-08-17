@@ -69,7 +69,7 @@ export function resolveMissingProjectSessionSelection<T>({
         ([projectId, sessions]) => projectId !== activeProjectId && sessions.has(currentSessionId),
       ),
     );
-    if (currentSessionId && projectMap && !currentSessionBelongsToAnotherProject) {
+    if (currentSessionId && !currentSessionBelongsToAnotherProject) {
       return { kind: 'preserve-current' };
     }
   }

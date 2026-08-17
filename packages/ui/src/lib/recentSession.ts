@@ -2,7 +2,7 @@ import { getRuntimeKey } from '@/lib/runtime-switch';
 import { RECENT_SESSION_TOKEN } from '@/lib/router';
 import { useConfigStore } from '@/stores/useConfigStore';
 import { refreshGlobalSessions, resolveGlobalSessionDirectory, useGlobalSessionsStore } from '@/stores/useGlobalSessionsStore';
-import { clearLastActiveSession, readLastActiveSession } from '@/sync/last-session-cache';
+import { clearLastActiveSession, readLastActiveSession, readMostRecentLastActiveSession } from '@/sync/last-session-cache';
 
 export type ResolvedRecentSession = {
   sessionId: string;
@@ -51,7 +51,7 @@ const RECENT_SESSION_RESOLUTION_ABSOLUTE_CAP_MS = 30_000;
  */
 export async function resolveRecentSession(): Promise<ResolvedRecentSession | null> {
   const runtimeKey = getRuntimeKey();
-  const persisted = readLastActiveSession(runtimeKey);
+  const persisted = readLastActiveSession(runtimeKey) ?? readMostRecentLastActiveSession();
   if (!persisted) {
     return null;
   }

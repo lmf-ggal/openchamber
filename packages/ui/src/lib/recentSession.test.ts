@@ -25,6 +25,7 @@ mock.module('@/sync/last-session-cache', () => ({
   clearLastActiveSession: (key: string) => {
     clearCalls.push(key);
   },
+  readMostRecentLastActiveSession: () => null,
 }));
 
 let sdkConnected = true;
