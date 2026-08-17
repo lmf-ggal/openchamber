@@ -40,7 +40,9 @@ const RECENT_SESSION_RESOLUTION_TIMEOUT_MS = 6_000;
  * Resolve the `?session=recent` URL token to the last session that was active
  * for the current runtime. Mirrors the MobileApp cold-launch restore: the
  * persisted pointer is only trusted after an authoritative sessions snapshot
- * confirms the session still exists; otherwise the stale pointer is dropped.
+ * confirms the session still exists. The pointer is dropped only when an
+ * authoritative `ready` snapshot confirms the session is gone; failures and
+ * non-authoritative statuses preserve it for a later retry.
  *
  * Returns `null` when there is no usable persisted session, so callers can
  * fall back to the default new-session behavior.
