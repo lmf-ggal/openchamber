@@ -52,34 +52,34 @@ export async function resolveRecentSession(): Promise<ResolvedRecentSession | nu
     return null;
   }
 
-  let timeout: ReturnType<typeof setTimeout> | undefined;
-  await Promise.race([
-    refreshGlobalSessions().catch(() => null),
-    new Promise<null>((resolve) => {
-      timeout = setTimeout(() => resolve(null), RECENT_SESSION_RESOLUTION_TIMEOUT_MS);
-    }),
-  ]);
-  if (timeout !== undefined) {
-    clearTimeout(timeout);
-  }
+  // Kick off a load if none is in flight. The returned promise is not
+  // authoritative: on a runtime-switch generation mismatch it resolves to an
+  // empty snapshot without touching the store status, while a newer load may
+  // have already applied the real snapshot. Only the committed store status is
+  // authoritative, so wait (bounded) for it to reach `ready` and read the
+  // committed snapshot there.
+  void refreshGlobalSessions().catch(() => null);
 
-  // Only the committed store snapshot is authoritative: the promise returned
-  // by `refreshGlobalSessions` may be a generation-stale (empty) result that
-  // was discarded without touching the store status, while a newer load
-  // already applied the real snapshot.
-  const state = useGlobalSessionsStore.getState();
-  if (state.status !== 'ready') {
-    return null;
+  const deadline = Date.now() + RECENT_SESSION_RESOLUTION_TIMEOUT_MS;
+  for (;;) {
+    const state = useGlobalSessionsStore.getState();
+    if (state.status === 'error') {
+      return null;
+    }
+    if (state.status === 'ready') {
+      const session = state.activeSessions.find((entry) => entry.id === persisted.sessionId);
+      if (!session) {
+        clearLastActiveSession(runtimeKey);
+        return null;
+      }
+      return {
+        sessionId: session.id,
+        directory: resolveGlobalSessionDirectory(session) ?? persisted.directory,
+      };
+    }
+    if (Date.now() >= deadline) {
+      return null;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 50));
   }
-
-  const session = state.activeSessions.find((entry) => entry.id === persisted.sessionId);
-  if (!session) {
-    clearLastActiveSession(runtimeKey);
-    return null;
-  }
-
-  return {
-    sessionId: session.id,
-    directory: resolveGlobalSessionDirectory(session) ?? persisted.directory,
-  };
 }

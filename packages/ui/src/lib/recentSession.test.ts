@@ -2,8 +2,10 @@ import { afterEach, beforeEach, describe, expect, mock, test } from 'bun:test';
 
 const clearCalls: string[] = [];
 const snapshotCalls: Array<{
-  reject: boolean;
+  reject?: boolean;
   pending?: boolean;
+  commit?: boolean;
+  delayMs?: number;
   sessions: Array<{ id: string; directory?: string | null }>;
 }> = [];
 let storeStatus: 'idle' | 'loading' | 'ready' | 'error' = 'ready';
@@ -29,7 +31,27 @@ mock.module('@/stores/useGlobalSessionsStore', () => ({
   refreshGlobalSessions: async (): Promise<SnapshotResult> => {
     const next = snapshotCalls.shift();
     if (next?.pending) return new Promise<SnapshotResult>(() => undefined);
-    if (next?.reject) throw new Error('network down');
+    if (next?.reject) {
+      storeStatus = 'error';
+      throw new Error('network down');
+    }
+    // A successful load commits its snapshot into the store and flips the
+    // status to 'ready' (mirrors `loadSessions`). Pass `commit: false` to
+    // simulate a generation-stale result that returns without touching the
+    // store (the runtime-switch mismatch case); `delayMs` defers the commit so
+    // the caller can observe the store being still non-ready.
+    if (next?.commit === false) {
+      return { activeSessions: next?.sessions ?? [] };
+    }
+    const apply = () => {
+      committedSessions = next?.sessions ?? [];
+      storeStatus = 'ready';
+    };
+    if (next?.delayMs) {
+      setTimeout(apply, next.delayMs);
+    } else {
+      apply();
+    }
     return { activeSessions: next?.sessions ?? [] };
   },
   resolveGlobalSessionDirectory: (session: { directory?: string | null; project?: { worktree?: string | null } | null }) =>
@@ -44,8 +66,11 @@ const setPersisted = (sessionId: string | null, directory: string | null = null)
     sessionId === null ? null : { sessionId, directory };
 };
 
-const queueSnapshot = (sessions: Array<{ id: string; directory?: string | null }>) => {
-  snapshotCalls.push({ reject: false, sessions });
+const queueSnapshot = (
+  sessions: Array<{ id: string; directory?: string | null }>,
+  options: { commit?: boolean; delayMs?: number } = {},
+) => {
+  snapshotCalls.push({ sessions, commit: options.commit, delayMs: options.delayMs });
 };
 
 beforeEach(() => {
@@ -110,7 +135,7 @@ describe('resolveRecentSession', () => {
   test('keeps the pointer when the store reports a failed snapshot', async () => {
     setPersisted('ses_active', '/repo/a');
     storeStatus = 'error';
-    queueSnapshot([]);
+    queueSnapshot([], { commit: false });
     const { resolveRecentSession } = await import('./recentSession');
     expect(await resolveRecentSession()).toBeNull();
     expect(clearCalls).toEqual([]);
@@ -119,16 +144,17 @@ describe('resolveRecentSession', () => {
   test('keeps the pointer when the snapshot is not authoritative (non-ready store status)', async () => {
     setPersisted('ses_active', '/repo/a');
     storeStatus = 'idle';
-    queueSnapshot([]);
+    queueSnapshot([], { commit: false });
     const { resolveRecentSession } = await import('./recentSession');
     expect(await resolveRecentSession()).toBeNull();
     expect(clearCalls).toEqual([]);
-  });
+  }, 10_000);
 
   test('restores from the committed store even when the refresh returns a stale empty snapshot', async () => {
     setPersisted('ses_active', '/repo/a');
     committedSessions = [{ id: 'ses_active', directory: '/repo/c' }];
-    queueSnapshot([]);
+    storeStatus = 'ready';
+    queueSnapshot([], { commit: false });
     const { resolveRecentSession } = await import('./recentSession');
     const resolved = await resolveRecentSession();
     expect(resolved).toEqual({ sessionId: 'ses_active', directory: '/repo/c' });
