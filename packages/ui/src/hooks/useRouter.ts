@@ -178,6 +178,11 @@ export function useRouter(): void {
     const initializeRoute = async () => {
       await applyRoute(route);
 
+      // Do not normalize the initial URL after a newer popstate route wins.
+      if (routeGenerationRef.current !== 1) {
+        return;
+      }
+
       // After applying, update URL to normalized form (use replaceState).
       // Use the parsed route values instead of an immediate store snapshot so
       // deep links do not briefly normalize `?session=...` back to `/` while
