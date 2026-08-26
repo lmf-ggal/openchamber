@@ -1,9 +1,10 @@
 import React from 'react';
 import { useSessionUIStore } from '@/sync/session-ui-store';
 import { useUIStore, type ContextPanelMode } from '@/stores/useUIStore';
-import { parseRoute, updateBrowserURL, hasRouteParams } from '@/lib/router';
+import { parseRoute, updateBrowserURL, hasRouteParams, RECENT_SESSION_TOKEN } from '@/lib/router';
 import type { RouteState, AppRouteState } from '@/lib/router';
 import { resolveSettingsSlug } from '@/lib/settings/metadata';
+import { resolveRecentSession } from '@/lib/recentSession';
 import { isEmbeddedSessionChat } from '@/components/layout/contextPanelEmbeddedChat';
 import { useDirectoryStore } from '@/stores/useDirectoryStore';
 
@@ -46,6 +47,7 @@ export function useRouter(): void {
   // Track initialization to avoid duplicate applies
   const initializedRef = React.useRef(false);
   const isApplyingRouteRef = React.useRef(false);
+  const routeGenerationRef = React.useRef(0);
 
   // Get store actions (stable references)
   const setCurrentSession = useSessionUIStore((state) => state.setCurrentSession);
@@ -58,19 +60,35 @@ export function useRouter(): void {
    */
   const applyRoute = React.useCallback(
     async (route: RouteState) => {
-      if (isApplyingRouteRef.current) {
-        return;
-      }
-
+      const generation = ++routeGenerationRef.current;
       isApplyingRouteRef.current = true;
 
       try {
         // 1. Apply session first (may trigger async operations)
         if (route.sessionId) {
-          const currentSessionId = useSessionUIStore.getState().currentSessionId;
-          if (route.sessionId !== currentSessionId) {
-            const directoryHint = useSessionUIStore.getState().getDirectoryForSession(route.sessionId);
-            setCurrentSession(route.sessionId, directoryHint);
+          let targetSessionId: string | null = route.sessionId;
+          let directoryHint: string | null | undefined;
+
+          if (route.sessionId === RECENT_SESSION_TOKEN) {
+            const resolved = await resolveRecentSession();
+            if (generation !== routeGenerationRef.current) {
+              return;
+            }
+            if (resolved) {
+              targetSessionId = resolved.sessionId;
+              directoryHint = resolved.directory;
+            } else {
+              targetSessionId = null;
+            }
+          } else {
+            directoryHint = useSessionUIStore.getState().getDirectoryForSession(route.sessionId);
+          }
+
+          if (targetSessionId) {
+            const currentSessionId = useSessionUIStore.getState().currentSessionId;
+            if (targetSessionId !== currentSessionId) {
+              setCurrentSession(targetSessionId, directoryHint ?? undefined);
+            }
           }
         }
 
@@ -104,7 +122,9 @@ export function useRouter(): void {
           navigateToDiff(route.diffFile);
         }
       } finally {
-        isApplyingRouteRef.current = false;
+        if (generation === routeGenerationRef.current) {
+          isApplyingRouteRef.current = false;
+        }
       }
     },
     [setCurrentSession, setSettingsDialogOpen, setSettingsPage, navigateToDiff]
