@@ -70,25 +70,33 @@ export function useRouter(): void {
           if (route.sessionId === RECENT_SESSION_TOKEN) {
             const sessionIdBeforeResolution = useSessionUIStore.getState().currentSessionId;
             const clearGenerationBeforeResolution = getLastActiveSessionClearGeneration();
-            const resolved = await resolveRecentSession();
-            if (generation !== routeGenerationRef.current) {
-              return;
-            }
-            // A user selection made while resolving the persisted pointer wins
-            // over the deep link instead of being overwritten on completion.
-            const userClearedPointerDuringResolution =
-              getLastActiveSessionClearGeneration() !== clearGenerationBeforeResolution;
-            if (
-              userClearedPointerDuringResolution
-              || !shouldApplyResolvedRecentSession(
-                sessionIdBeforeResolution,
-                useSessionUIStore.getState().currentSessionId,
-              )
-            ) {
-              return;
-            }
-            if (resolved) {
-              await openSessionFromRoute(resolved.sessionId);
+            // Hold the startup overlay for the whole resolution so the boot
+            // draft is never painted while the restore is still deciding
+            // (mirrors the native mobile cold-launch overlay).
+            useSessionUIStore.getState().setRecentSessionRestorePending(true);
+            try {
+              const resolved = await resolveRecentSession();
+              if (generation !== routeGenerationRef.current) {
+                return;
+              }
+              // A user selection made while resolving the persisted pointer wins
+              // over the deep link instead of being overwritten on completion.
+              const userClearedPointerDuringResolution =
+                getLastActiveSessionClearGeneration() !== clearGenerationBeforeResolution;
+              if (
+                userClearedPointerDuringResolution
+                || !shouldApplyResolvedRecentSession(
+                  sessionIdBeforeResolution,
+                  useSessionUIStore.getState().currentSessionId,
+                )
+              ) {
+                return;
+              }
+              if (resolved) {
+                await openSessionFromRoute(resolved.sessionId);
+              }
+            } finally {
+              useSessionUIStore.getState().setRecentSessionRestorePending(false);
             }
           } else {
             await openSessionFromRoute(route.sessionId);
