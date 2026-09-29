@@ -1290,14 +1290,30 @@ export const createOpenCodeLifecycleRuntime = (deps) => {
         try {
           const controller = new AbortController();
           timeout = setTimeout(() => controller.abort(), MCP_WARMUP_REQUEST_TIMEOUT_MS);
-          // Any MCP-scoped read initialises the directory's servers; `/mcp` is
-          // the cheapest one and the same endpoint the Settings → MCP page uses.
-          const url = `${buildOpenCodeUrl('/mcp', '')}?directory=${encodeURIComponent(directory)}`;
-          await fetch(url, {
+          // Any MCP-scoped read initialises the directory's servers; `/api/mcp`
+          // is the cheapest one. OpenCode ≥2.0.18 scopes it via the
+          // `x-opencode-directory` header; older 2.x (and 1.x) take a
+          // `?directory=` query on the legacy `/mcp` route. Try the modern
+          // route first and fall back so both pin versions warm up, and check
+          // the response so a silent 404 can't masquerade as a warm pass.
+          const baseUrl = buildOpenCodeUrl('/api/mcp', '');
+          const headers = { Accept: 'application/json', ...getOpenCodeAuthHeaders() };
+          const modern = await fetch(baseUrl, {
             method: 'GET',
-            headers: { Accept: 'application/json', ...getOpenCodeAuthHeaders() },
+            headers: { ...headers, 'x-opencode-directory': directory },
             signal: controller.signal,
           });
+          if (!modern.ok) {
+            const legacy = `${buildOpenCodeUrl('/mcp', '')}?directory=${encodeURIComponent(directory)}`;
+            const fallback = await fetch(legacy, {
+              method: 'GET',
+              headers,
+              signal: controller.signal,
+            });
+            if (!fallback.ok) {
+              console.warn(`[warmMCP] none of /api/mcp (${modern.status}) or /mcp (${fallback.status}) initialised MCP for ${directory}`);
+            }
+          }
         } catch {
           // Best-effort — the directory's MCP stays lazy and the UI's own
           // request initialises it when the user actually opens that project.
