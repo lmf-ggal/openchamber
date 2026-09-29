@@ -51,7 +51,11 @@ const classifyOpenCodeVersion = (version) => {
 // Only the directory the user will open anyway. On OpenCode 2 the first
 // directory-scoped read boots that location's whole MCP fleet, so warming
 // other projects "just in case" started processes nobody asked for (#4018).
-const WARMUP_DIRECTORY_LIMIT = 1;
+// lmf-ggal : keep warming several known projects (not just the MRU one) —
+// this matches the behaviour validated on this install since 26/09/2026
+// (remotes spawn t+10-45s post-boot without any session open). Upstream #4018
+// reduced this to 1 to fight MCP server accumulation; our local usage keeps 4.
+const WARMUP_DIRECTORY_LIMIT = 4;
 const WARMUP_REQUEST_TIMEOUT_MS = 30000;
 // MCP connects happen per directory's lazy state and can take a minute on
 // projects with remote servers (e.g. LeroyMerlin's three remotes): give the
