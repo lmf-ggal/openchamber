@@ -53,6 +53,14 @@ export const restoreLastActiveSession = async (options: {
     if (!session) {
         // The authoritative list says it is gone (deleted or archived): drop
         // the stale pointer instead of retrying it on every launch.
+        // Only a genuinely loaded, non-error list is authoritative: on web
+        // iframe reloads the first snapshot can be empty while the UI auth /
+        // chats-root warm-up is still resolving, and clearing the pointer
+        // there would make every later reload land on a blank draft.
+        const listState = useGlobalSessionsStore.getState();
+        if (listState.status !== 'ready') {
+            return 'failed';
+        }
         clearLastActiveSession(runtimeKey);
         return 'none';
     }

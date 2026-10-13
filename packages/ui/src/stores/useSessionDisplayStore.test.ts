@@ -80,11 +80,15 @@ describe('useSessionDisplayStore view mode', () => {
     expect(useSessionDisplayStore.getState().sidebarViewMode).toBe('timeline');
   });
 
-  test('v9→v10 drops the removed Recent toggle and keeps the rest', () => {
+  test('v9→v11 preserves an existing Recent choice and keeps the rest', () => {
     const migrated = migrateSessionDisplayState({ showRecentSection: true, projectSortOrder: 'a-z' }, 9);
 
-    expect('showRecentSection' in migrated).toBe(false);
+    expect(migrated.showRecentSection).toBe(true);
     expect(migrated.projectSortOrder).toBe('a-z');
+  });
+
+  test('adds the Recent preference for older data when no value was saved', () => {
+    expect(migrateSessionDisplayState({ projectSortOrder: 'a-z' }, 9).showRecentSection).toBe(false);
   });
 
   test('v5→v6 drops the removed grouping key and keeps the rest', () => {
@@ -114,14 +118,14 @@ describe('useSessionDisplayStore animated activity', () => {
       await useSessionDisplayStore.persist.rehydrate();
       expect(useSessionDisplayStore.getState().animatedActivityIndicators).toBe(false);
       expect(useSessionDisplayStore.getState().sidebarViewMode).toBe('timeline');
-      expect(useSessionDisplayStore.persist.getOptions().version).toBe(10);
+        expect(useSessionDisplayStore.persist.getOptions().version).toBe(11);
       useSessionDisplayStore.getState().setAnimatedActivityIndicators(true);
       const enabledSnapshot = stored;
       useSessionDisplayStore.setState({ animatedActivityIndicators: false });
       stored = enabledSnapshot;
       await useSessionDisplayStore.persist.rehydrate();
       expect(useSessionDisplayStore.getState().animatedActivityIndicators).toBe(true);
-      expect('showRecentSection' in useSessionDisplayStore.getState()).toBe(false);
+        expect(useSessionDisplayStore.getState().showRecentSection).toBe(false);
     } finally {
       useSessionDisplayStore.persist.setOptions({ storage: originalStorage });
       useSessionDisplayStore.setState(initialState);

@@ -114,15 +114,18 @@ export const flattenPreferences = (fields, surface = null) => {
 /**
  * The next preference fields for a merged document: every profile key it
  * carries, stamped `now` when its value differs from what the file held and
- * keeping the earlier stamp otherwise. Profile keys the document no longer
- * carries are dropped (that is how a cleared key leaves the file).
+ * keeping the earlier stamp otherwise. Missing ordinary profile keys are
+ * dropped. Missing per-surface keys are carried forward below because a write
+ * from another surface (or a legacy write with no surface) cannot express that
+ * surface's value.
  *
  * Per-surface keys: when the write comes from a surface kind (`surface`) and
  * the key is among the keys that write changed (`changedKeys`), the value goes
  * under `surfaces[surface]` and the base is left as it was; a per-surface key
  * the write did not change keeps its whole entry (the document only carries
- * that surface's resolved view of it). Without a surface (migrations, the
- * one-time seed) the base is written.
+ * that surface's resolved view of it). A per-surface key omitted from the
+ * flattened document keeps its previous entry. Without a surface (migrations,
+ * the one-time seed) a supplied value is written to the base.
  */
 export const buildPreferencesFields = (previousFields, document, now, { surface = null, changedKeys = null } = {}) => {
   const fields = {};
@@ -147,6 +150,14 @@ export const buildPreferencesFields = (previousFields, document, now, { surface 
       fields[key] = previous;
     } else {
       fields[key] = { ...(previous ?? {}), value, updatedAt: now };
+    }
+  }
+  // A per-surface preference absent from this write's flattened document may
+  // belong to another surface. Preserve its stored entry so an unrelated or
+  // cross-surface write cannot erase that user's choice.
+  for (const [key, entry] of Object.entries(previousFields)) {
+    if (!(key in fields) && isPerSurfaceSettingsKey(key)) {
+      fields[key] = entry;
     }
   }
   return fields;
