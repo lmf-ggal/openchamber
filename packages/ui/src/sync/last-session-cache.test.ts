@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, test } from "bun:test"
-import { clearLastActiveSession, persistLastActiveSession, readLastActiveSession } from "./last-session-cache"
+import { clearLastActiveSession, getLastActiveSessionClearGeneration, persistLastActiveSession, readLastActiveSession, readMostRecentLastActiveSession } from "./last-session-cache"
 
 class TestStorage implements Storage {
   readonly values = new Map<string, string>()
@@ -41,6 +41,19 @@ describe("last active session persistence", () => {
 
     expect(readLastActiveSession("runtime-a", storage)).toBeNull()
     expect(readLastActiveSession("runtime-b", storage)).toEqual({ sessionId: "ses-b", directory: null })
+  })
+
+  test("can resolve the newest pointer across equivalent runtime origins", () => {
+    persistLastActiveSession("runtime-old", { sessionId: "ses-old", directory: "/repo/old" }, storage)
+    persistLastActiveSession("runtime-new", { sessionId: "ses-new", directory: "/repo/new" }, storage)
+
+    expect(readMostRecentLastActiveSession(storage)).toEqual({ sessionId: "ses-new", directory: "/repo/new" })
+  })
+
+  test("records a user clear even when no pointer was stored", () => {
+    const before = getLastActiveSessionClearGeneration()
+    clearLastActiveSession("runtime-empty", storage)
+    expect(getLastActiveSessionClearGeneration()).toBe(before + 1)
   })
 
   test("malformed persisted payload reads as empty, not a crash", () => {

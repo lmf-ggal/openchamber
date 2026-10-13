@@ -42,7 +42,7 @@ import {
 import type { RecoveryVariant } from '@/components/onboarding/DesktopConnectionRecovery';
 import { useSessionUIStore } from '@/sync/session-ui-store';
 import { openSessionLink } from '@/lib/router/openSessionFromRoute';
-import { parseRoute } from '@/lib/router';
+import { parseRoute, RECENT_SESSION_TOKEN } from '@/lib/router';
 import { beginLastSessionRestore, type LastSessionRestoreResult } from '@/sync/last-session-restore';
 import { markSessionViewed } from '@/sync/notification-store';
 import { useDirectoryStore } from '@/stores/useDirectoryStore';
@@ -218,6 +218,7 @@ function App({ apis }: AppProps) {
   const loadProviders = useConfigStore((state) => state.loadProviders);
   const loadAgents = useConfigStore((state) => state.loadAgents);
   const error = useSessionUIStore((s) => s.error);
+  const recentSessionRestorePending = useSessionUIStore((s) => s.recentSessionRestorePending);
   const clearError = useSessionUIStore((s) => s.clearError);
   const currentDirectory = useDirectoryStore((state) => state.currentDirectory);
   const isSwitchingDirectory = useDirectoryStore((state) => state.isSwitchingDirectory);
@@ -570,7 +571,11 @@ function App({ apis }: AppProps) {
   React.useLayoutEffect(() => {
     const restore = lastSessionRestoreRef.current;
     if (restore.attempt) return;
-    restore.attempt = beginLastSessionRestore({ selectNow: !parseRoute().sessionId });
+    const route = parseRoute();
+    // The shared router owns ?session=recent: do not race it with the generic
+    // launch restore, which can select the pointer before the ready snapshot.
+    if (route.sessionId === RECENT_SESSION_TOKEN) return;
+    restore.attempt = beginLastSessionRestore({ selectNow: !route.sessionId });
   }, []);
   React.useEffect(() => {
     const restore = lastSessionRestoreRef.current;
@@ -873,7 +878,7 @@ function App({ apis }: AppProps) {
                   <OpenCodeUpdateToast />
                   <ProjectConfigErrorToast />
                   <MainLayout />
-                  {isDesktopRuntime ? <AppStartupOverlay ready={bootOutcomeKnown && bootViewIsMain} /> : null}
+                  <AppStartupOverlay ready={isInitialized && !recentSessionRestorePending && (!isDesktopRuntime || (bootOutcomeKnown && bootViewIsMain))} />
                   <Toaster />
                   <AppLinkConfirmDialog />
                   <SharedTrustConfirmDialog />

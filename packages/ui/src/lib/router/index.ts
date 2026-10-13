@@ -6,6 +6,7 @@
  *
  * URL Schema:
  * - `?session=<id>` - Navigate to specific session
+ * - `?session=recent` - Resolve the runtime's last active session
  * - `?session=<id>&message=<id>` - Open the session on one message (a message
  *   link; see `messageFocus.ts` and `lib/sessionLinks.ts`)
  * - `?tab=<chat|git|diff|terminal|files>` - Legacy URL name for the active workspace surface
@@ -20,7 +21,7 @@
  */
 
 export type { RouteState } from './types';
-
+export { RECENT_SESSION_TOKEN } from './types';
 
 export { parseRoute, hasRouteParams } from './parseRoute';
 

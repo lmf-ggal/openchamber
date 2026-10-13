@@ -1,11 +1,16 @@
 import { describe, expect, test } from 'bun:test';
 
 import { parseRoute } from './parseRoute';
+import { RECENT_SESSION_TOKEN } from './types';
 
 describe('parseRoute session', () => {
   test('reads a session id including OpenCode underscores', () => {
     const route = parseRoute(new URLSearchParams('session=ses_abc123'));
     expect(route.sessionId).toBe('ses_abc123');
+  });
+
+  test('preserves the recent-session route token for the router to resolve', () => {
+    expect(parseRoute(new URLSearchParams('session=recent')).sessionId).toBe(RECENT_SESSION_TOKEN);
   });
 
   test('decodes a percent-encoded session id', () => {

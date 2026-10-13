@@ -158,6 +158,38 @@ describe('buildSessionSidebarRowModel', () => {
     ]);
   });
 
+  test('shows Recent between In work and project rows in Tree mode, retaining project placement', () => {
+    const recent = node('recent');
+    const working = node('working');
+    const input = args([project([group([working, recent])])]);
+    input.workItems = [timelineItem('working')];
+    input.zoneSessionIds = new Set(['working']);
+    input.recentSections = [{ key: 'active-now', items: [timelineItem('recent')] }];
+    input.showRecentSection = true;
+
+    const model = buildSessionSidebarRowModel(input);
+    const headers = model.rows.flatMap((row) => row.kind === 'activity-header' ? [row.activityKey] : []);
+    const sessions = model.rows.flatMap((row) => row.kind === 'session' ? [`${row.renderContext}:${row.node.session.id}`] : []);
+
+    expect(headers).toEqual(['work', 'recent']);
+    expect(sessions.slice(0, 2)).toEqual(['mixed-compact:working', 'recent:recent']);
+    expect(new Set(sessions.slice(2))).toEqual(new Set(['project:working', 'project:recent']));
+    expect(model.selectionEntries.filter((entry) => entry.id === 'recent')).toHaveLength(2);
+  });
+
+  test('does not add Recent in List/Timeline mode even when its preference is on', () => {
+    const input = args([project([group([node('recent')])])]);
+    input.viewMode = 'timeline';
+    input.recentSections = [{ key: 'active-now', items: [timelineItem('recent')] }];
+    input.timelineItems = [timelineItem('recent')];
+    input.showRecentSection = true;
+
+    const model = buildSessionSidebarRowModel(input);
+
+    expect(model.rows.some((row) => row.kind === 'activity-header' && row.activityKey === 'recent')).toBe(false);
+    expect(model.rows.flatMap((row) => row.kind === 'session' ? [row.node.session.id] : [])).toContain('recent');
+  });
+
   test('search lists a session in work once, in the work block, and counts the tree once', () => {
     const parent = node('ses_parent', [node('ses_child'), node('ses_other')]);
     const main = group([parent]);

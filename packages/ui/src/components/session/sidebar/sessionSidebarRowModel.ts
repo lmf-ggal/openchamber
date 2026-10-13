@@ -16,14 +16,19 @@ export type SessionSidebarActivityItem = {
   blockingBadgeSessionScopes?: readonly BlockingBadgeSessionScope[];
   projectId: string | null;
   groupDirectory: string | null;
-  secondaryMeta: { projectLabel?: string | null; branchLabel?: string | null } | null;
+  secondaryMeta: { projectLabel?: string | null; branchLabel?: string | null; inSpace?: boolean } | null;
   getSecondaryMeta?: (sessionId: string) => SessionSidebarActivityItem['secondaryMeta'];
 };
 
-export type SessionSidebarActivityKey = 'pinned' | 'work' | 'chats';
+export type SessionSidebarActivityKey = 'pinned' | 'work' | 'chats' | 'recent';
+
+export type SessionSidebarActivitySection = {
+  key: 'active-now';
+  items: readonly SessionSidebarActivityItem[];
+};
 
 /** Activity sections; the display menu's Collapse all / Expand all drive them with the projects. */
-export const SIDEBAR_ACTIVITY_KEYS: readonly SessionSidebarActivityKey[] = ['chats', 'pinned', 'work'];
+export const SIDEBAR_ACTIVITY_KEYS: readonly SessionSidebarActivityKey[] = ['chats', 'pinned', 'work', 'recent'];
 
 // 'project' is a one-line file tree row of the grouped view. Timeline rows
 // have no left gutter and carry their status on the right: 'timeline' is a
@@ -32,11 +37,11 @@ export const SIDEBAR_ACTIVITY_KEYS: readonly SessionSidebarActivityKey[] = ['cha
 // opens with the project's icon; 'mixed-compact' is that row on one line, the
 // Tree view's default for Pinned and In work; 'timeline-chat' is a one-line
 // Chats row.
-export type SessionSidebarRenderContext = 'project' | 'timeline' | 'timeline-mixed' | 'mixed-compact' | 'timeline-chat';
+export type SessionSidebarRenderContext = 'project' | 'timeline' | 'timeline-mixed' | 'mixed-compact' | 'timeline-chat' | 'recent';
 
 /** Rows that render through `SessionTimelineRowBody` with two lines. */
 export const isTwoLineTimelineContext = (context: SessionSidebarRenderContext): boolean => (
-  context === 'timeline' || context === 'timeline-mixed'
+  context === 'timeline' || context === 'timeline-mixed' || context === 'recent'
 );
 
 /** Flat zone and timeline rows never expand: a run row opens its overview instead. */
@@ -127,6 +132,9 @@ export type SessionSidebarRowModelArgs = {
   zoneSessionIds?: ReadonlySet<string>;
   /** Pinned and In work rows in the Tree view: two lines when set, one otherwise. */
   detailedZoneRows?: boolean;
+  /** Cross-project Recent projection, shown in Tree mode when the user enables it. */
+  recentSections?: readonly SessionSidebarActivitySection[];
+  showRecentSection?: boolean;
   foldersMap: SessionFoldersMap;
   groupSearchDataByGroup: WeakMap<SessionGroup, GroupSearchData>;
   normalizedQuery: string;
@@ -655,6 +663,7 @@ export const buildSessionSidebarRowModel = (args: SessionSidebarRowModelArgs): S
     entry: ActivityRunEntry,
     containerKey: string,
     renderContext: SessionSidebarRenderContext,
+    scoped = false,
   ): void => {
     const first = entry.items[0];
     if (!first) return;
@@ -670,7 +679,7 @@ export const buildSessionSidebarRowModel = (args: SessionSidebarRowModelArgs): S
     const badgeScopesById = new Map(entry.items.map((item) => [item.node.session.id, item.blockingBadgeSessionScopes]));
     appendRun({ run: entry.run, lanes }, {
       nodes: lanes, containerKey, projectId: first.projectId, groupDirectory: first.groupDirectory,
-      ownerKey, selectionScopeKey: null, archived: false, renderContext,
+      ownerKey, selectionScopeKey: scoped ? ownerKey : null, archived: false, renderContext,
       getSecondaryMeta: (sessionId) => metaById.get(sessionId) ?? null,
       getBlockingBadgeSessionScopes: (sessionId) => badgeScopesById.get(sessionId),
       indexedNodes: indexed, selectionPoolOffset,
@@ -682,10 +691,11 @@ export const buildSessionSidebarRowModel = (args: SessionSidebarRowModelArgs): S
     containerKey: string,
     renderContext: SessionSidebarRenderContext,
     countMatches: (item: SessionSidebarActivityItem) => number = () => 1,
+    scoped = false,
   ): void => {
     for (const entry of collapseActivityItems(items)) {
       if (isActivityRunEntry(entry)) {
-        appendActivityRun(entry, containerKey, renderContext);
+        appendActivityRun(entry, containerKey, renderContext, scoped);
         if (search) searchMatchCount += entry.items.reduce((total, item) => total + countMatches(item), 0);
         continue;
       }
@@ -696,8 +706,9 @@ export const buildSessionSidebarRowModel = (args: SessionSidebarRowModelArgs): S
       const ownerKey = getSessionFolderOwnerKey(item.projectId, item.groupDirectory);
       appendSessions({
         nodes: [item.node], containerKey, projectId: item.projectId, groupDirectory: item.groupDirectory,
-        // In work and the timeline lists carry no selection scope.
-        ownerKey, selectionScopeKey: null, archived: false, renderContext,
+        // Recent rows are grouped back into their owning project for selection;
+        // mixed work/timeline rows intentionally span projects.
+        ownerKey, selectionScopeKey: scoped ? ownerKey : null, archived: false, renderContext,
         blockingBadgeSessionScopes: item.blockingBadgeSessionScopes,
         secondaryMeta: item.secondaryMeta, getSecondaryMeta: item.getSecondaryMeta, indexedNodes: indexed, selectionPoolOffset,
       });
@@ -733,11 +744,12 @@ export const buildSessionSidebarRowModel = (args: SessionSidebarRowModelArgs): S
     renderContext: SessionSidebarRenderContext,
     initialLimit: number,
     increment: number,
+    scoped = false,
   ): void => {
     const requested = Math.max(initialLimit, args.visibleCountByContainer.get(containerKey) ?? initialLimit);
     const entries = collapseActivityItems(items);
     const visibleEntries = search ? entries : entries.slice(0, requested);
-    appendActivityItems(visibleEntries.flatMap((entry) => isActivityRunEntry(entry) ? entry.items : [entry]), containerKey, renderContext);
+    appendActivityItems(visibleEntries.flatMap((entry) => isActivityRunEntry(entry) ? entry.items : [entry]), containerKey, renderContext, undefined, scoped);
     if (search) return;
     if (entries.length > visibleEntries.length) push({ kind: 'show-control', key: `${containerKey}:more`, estimateSize: STATUS_ESTIMATE, control: 'more', containerKey, currentCount: visibleEntries.length, increment, flat: true });
     else if (entries.length > initialLimit) push({ kind: 'show-control', key: `${containerKey}:fewer`, estimateSize: STATUS_ESTIMATE, control: 'fewer', containerKey, currentCount: visibleEntries.length, increment, flat: true });
@@ -753,6 +765,17 @@ export const buildSessionSidebarRowModel = (args: SessionSidebarRowModelArgs): S
   };
   appendZone('pinned', args.pinnedItems ?? []);
   appendZone('work', args.workItems ?? []);
+
+  if (!timelineMode && args.showRecentSection) {
+    for (const section of args.recentSections ?? []) {
+      const items = section.items.filter((item) => !inZone.has(item.node.session.id));
+      if (items.length === 0) continue;
+      const collapsed = appendActivityHeader('recent');
+      if (!collapsed) {
+        appendRevealedItems(items, `activity:${section.key}`, 'recent', SESSIONS_INITIAL_LIMIT, SESSIONS_INCREMENT, true);
+      }
+    }
+  }
 
   if (timelineMode) {
     // One header per project, in the user's manual order, over its root

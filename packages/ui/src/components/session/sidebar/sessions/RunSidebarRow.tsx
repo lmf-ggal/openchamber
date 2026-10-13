@@ -68,7 +68,7 @@ function RunSidebarRowComponent({
   const isTimelineRow = isTwoLineTimelineContext(renderContext) || isOneLineRow;
   // Only Pinned and In work mix projects; under a project header the row needs no icon.
   const timelineProject = useProjectsStore(React.useCallback((state) => (
-    renderContext === 'timeline-mixed' && projectId ? state.projects.find((entry) => entry.id === projectId) ?? null : null
+    (renderContext === 'timeline-mixed' || renderContext === 'recent') && projectId ? state.projects.find((entry) => entry.id === projectId) ?? null : null
   ), [renderContext, projectId]));
   const laneCount = run.lanes.length;
   const laneCountLabel = laneCount === 1
