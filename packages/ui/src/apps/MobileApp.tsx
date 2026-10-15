@@ -26,6 +26,7 @@ import { TooltipProvider } from '@/components/ui/tooltip';
 import { MobileToaster } from './MobileToaster';
 import { usePushVisibilityBeacon } from '@/hooks/usePushVisibilityBeacon';
 import { useRouter } from '@/hooks/useRouter';
+import { RECENT_SESSION_TOKEN } from '@/lib/router';
 import { useTerminalSessionKeepalive } from '@/hooks/useTerminalSessionKeepalive';
 import { useUpdatePolling } from '@/hooks/useUpdatePolling';
 import { useWindowTitle } from '@/hooks/useWindowTitle';
@@ -791,6 +792,7 @@ function MobileAppContent({ apis }: MobileAppProps) {
   const loadAgents = useConfigStore((state) => state.loadAgents);
   const currentDirectory = useDirectoryStore((state) => state.currentDirectory);
   const error = useSessionUIStore((state) => state.error);
+  const recentSessionRestorePending = useSessionUIStore((state) => state.recentSessionRestorePending);
   const clearError = useSessionUIStore((state) => state.clearError);
   const setIsMobile = useUIStore((state) => state.setIsMobile);
   const refreshSourceControlAuth = useSourceControlAuthStore((state) => state.refreshAll);
@@ -1173,11 +1175,20 @@ function MobileAppContent({ apis }: MobileAppProps) {
   // user choice. Runs once per successful launch connect; in-app instance
   // switches keep using the in-memory per-runtime session memory instead.
   const lastSessionRestoreDoneRef = React.useRef(false);
+  const isRecentSessionRoute = typeof window !== 'undefined'
+    && new URLSearchParams(window.location.search).get('session') === RECENT_SESSION_TOKEN;
   // While true, a logo overlay covers the shell so the user never sees the
   // intermediate auto-opened draft before the restore decision lands.
-  const [lastSessionRestorePending, setLastSessionRestorePending] = React.useState(isNativeMobileApp);
+  const [lastSessionRestorePending, setLastSessionRestorePending] = React.useState(
+    isNativeMobileApp && !isRecentSessionRoute,
+  );
   React.useEffect(() => {
     if (!isNativeMobileApp || !isConnected || lastSessionRestoreDoneRef.current) return;
+    if (isRecentSessionRoute) {
+      lastSessionRestoreDoneRef.current = true;
+      setLastSessionRestorePending(false);
+      return;
+    }
     let cancelled = false;
     // Safety valve: the overlay must never strand the user on the splash if
     // the snapshot hangs — fall through to the draft after a bounded wait.
@@ -1194,7 +1205,7 @@ function MobileAppContent({ apis }: MobileAppProps) {
       cancelled = true;
       window.clearTimeout(overlayTimeoutId);
     };
-  }, [connectionEpoch, isConnected, isNativeMobileApp]);
+  }, [connectionEpoch, isConnected, isNativeMobileApp, isRecentSessionRoute]);
 
   React.useEffect(() => {
     if (!isConnected) return;
@@ -1445,7 +1456,7 @@ function MobileAppContent({ apis }: MobileAppProps) {
                   until the last-session restore decides between session and
                   draft — otherwise the auto-opened draft flashes first. The
                   shell (and sync) still mounts and warms up underneath. */}
-              <AppStartupOverlay ready={!isNativeMobileApp || !lastSessionRestorePending} animated />
+<AppStartupOverlay ready={!isNativeMobileApp || (!lastSessionRestorePending && !recentSessionRestorePending)} animated />
               <SyncAppEffects backgroundWorkEnabled={isInitialized} />
               <OpenCodeUpdateToast />
               <MobileAppUpdateToast />

@@ -20,6 +20,12 @@ type PersistedEnvelope = {
   runtimes: Record<string, PersistedEntry>
 }
 
+let lastActiveSessionClearGeneration = 0
+
+export function getLastActiveSessionClearGeneration(): number {
+  return lastActiveSessionClearGeneration
+}
+
 const emptyEnvelope = (): PersistedEnvelope => ({ version: 1, runtimes: {} })
 
 const readEnvelope = (storage: Storage): PersistedEnvelope => {
@@ -79,11 +85,21 @@ export function readLastActiveSession(
   return entry ? { sessionId: entry.sessionId, directory: entry.directory } : null
 }
 
+/** Most recently used runtime pointer, for equivalent origins with different keys. */
+export function readMostRecentLastActiveSession(
+  storage: Storage = getDeferredSafeStorage(),
+): PersistedLastSession | null {
+  const entry = Object.values(readEnvelope(storage).runtimes)
+    .sort((left, right) => right.updatedAt - left.updatedAt)[0]
+  return entry ? { sessionId: entry.sessionId, directory: entry.directory } : null
+}
+
 export function clearLastActiveSession(
   runtimeKey: string,
   storage: Storage = getDeferredSafeStorage(),
 ): void {
   if (!runtimeKey) return
+  lastActiveSessionClearGeneration += 1
   const envelope = readEnvelope(storage)
   if (!envelope.runtimes[runtimeKey]) return
   delete envelope.runtimes[runtimeKey]
