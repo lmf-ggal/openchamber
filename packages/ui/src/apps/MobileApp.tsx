@@ -1176,7 +1176,7 @@ function MobileAppContent({ apis }: MobileAppProps) {
   // switches keep using the in-memory per-runtime session memory instead.
   const lastSessionRestoreDoneRef = React.useRef(false);
   const isRecentSessionRoute = typeof window !== 'undefined'
-    && new URLSearchParams(window.location.search).get('session') === RECENT_SESSION_TOKEN;
+    && new URLSearchParams(window.location?.search ?? '').get('session') === RECENT_SESSION_TOKEN;
   // While true, a logo overlay covers the shell so the user never sees the
   // intermediate auto-opened draft before the restore decision lands.
   const [lastSessionRestorePending, setLastSessionRestorePending] = React.useState(

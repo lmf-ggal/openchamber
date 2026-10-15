@@ -1162,7 +1162,7 @@ export const useSessionUIStore = create<SessionUIState>()((set, get) => ({
   abortPromptExpiresAt: null,
   error: null,
   recentSessionRestorePending: typeof window !== 'undefined'
-    && new URLSearchParams(window.location.search).get('session') === RECENT_SESSION_TOKEN,
+    && new URLSearchParams(window.location?.search ?? '').get('session') === RECENT_SESSION_TOKEN,
   worktreeMetadata: new Map(),
   availableWorktrees: flattenWorktreeMap(PERSISTED_WORKTREE_MAP),
   availableWorktreesByProject: PERSISTED_WORKTREE_MAP,

@@ -79,6 +79,9 @@ mock.module('@/lib/persistence', () => ({
   updateDesktopSettings: async () => ({ ok: true }),
   loadDesktopSettings: async () => null,
   reportSettingsSaveState: () => undefined,
+  // The settings patch makes the i18n store read this guard before pushing the
+  // locale to the server; the partial mock has to answer it too.
+  isApplyingServerSettings: () => false,
 }));
 
 const addWorkspaceFolderCalls: string[] = [];

@@ -209,6 +209,9 @@ mock.module('@/lib/runtime-fetch', () => ({
 mock.module('@/lib/persistence', () => ({
   updateDesktopSettings: mock(async () => ({ ok: true })),
   reportSettingsSaveState: () => undefined,
+  // The settings patch makes the i18n store read this guard before pushing the
+  // locale to the server; the partial mock has to answer it too.
+  isApplyingServerSettings: () => false,
   // The store reads the shared document through this; an empty document
   // keeps every OpenChamber default unset, like the settings route used to.
   loadDesktopSettings: mock(async () => {
