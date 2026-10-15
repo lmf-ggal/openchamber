@@ -25,6 +25,8 @@ type SessionDisplayStore = {
   setAnimatedActivityIndicators: (enabled: boolean) => void;
   /** The managed Chats block in the sidebar (web and desktop). */
   showChatsSection: boolean;
+  /** Cross-project Recent block in the Tree/Projects sidebar view. */
+  showRecentSection: boolean;
   /** The In work block; hidden, its sessions stay in their projects. */
   showWorkSection: boolean;
   /** The Pinned block above In work; off by default. Hidden, pinned sessions stay in their projects. */
@@ -38,6 +40,8 @@ type SessionDisplayStore = {
   projectSortOrder: ProjectSortOrder;
   worktreeSortOrder: WorktreeSortOrder;
   setShowChatsSection: (show: boolean) => void;
+  setShowRecentSection: (show: boolean) => void;
+  toggleRecentSection: () => void;
   setShowWorkSection: (show: boolean) => void;
   setShowPinnedSection: (show: boolean) => void;
   setDetailedZoneRows: (detailed: boolean) => void;
@@ -83,10 +87,10 @@ export const migrateSessionDisplayState = (
     // destructive actions like deleting a worktree.
     state.worktreeSortOrder = 'manual';
   }
-  if (version < 10) {
-    // v10 removes Recent: In work holds the sessions being worked on, and the
-    // timeline view answers "what was I doing" across projects.
-    delete state.showRecentSection;
+  if (version < 10 && state.showRecentSection === undefined) {
+    // Upstream v10 dropped Recent. The local v11 patch restores it and keeps
+    // an existing v9 user's choice instead of discarding it during migration.
+    state.showRecentSection = false;
   }
   return state;
 };
@@ -105,6 +109,7 @@ export const useSessionDisplayStore = create<SessionDisplayStore>()(
       sidebarViewMode: 'timeline',
       setSidebarViewMode: (mode) => set({ sidebarViewMode: mode }),
       showChatsSection: true,
+      showRecentSection: false,
       showWorkSection: true,
       showPinnedSection: false,
       detailedZoneRows: false,
@@ -115,6 +120,8 @@ export const useSessionDisplayStore = create<SessionDisplayStore>()(
       projectSortOrder: 'manual',
       worktreeSortOrder: 'manual',
       setShowChatsSection: (show) => set({ showChatsSection: show }),
+      setShowRecentSection: (show) => set({ showRecentSection: show }),
+      toggleRecentSection: () => set((state) => ({ showRecentSection: !state.showRecentSection })),
       setShowWorkSection: (show) => set({ showWorkSection: show }),
       setShowPinnedSection: (show) => set({ showPinnedSection: show }),
       setDetailedZoneRows: (detailed) => set({ detailedZoneRows: detailed }),
@@ -125,7 +132,7 @@ export const useSessionDisplayStore = create<SessionDisplayStore>()(
     }),
     {
       name: 'session-display-mode',
-      version: 10,
+      version: 11,
       // v1→v2 adds projectSortOrder using the canonical manual ordering.
       // v2→v3 replaces the previously shipped recent default with manual.
       // v3→v4 removes displayMode (single sidebar row layout).
@@ -134,7 +141,7 @@ export const useSessionDisplayStore = create<SessionDisplayStore>()(
       // v6→v7 drops stickyZoneHeaders (derived from the view mode now).
       // v7→v8 turned Recent off by default.
       // v8→v9 adds worktreeSortOrder (manual by default).
-      // v9→v10 drops showRecentSection (Recent is gone).
+      // v9→v10 upstream dropped Recent; v11 restores its persisted preference.
       migrate: migrateSessionDisplayState,
     },
   ),

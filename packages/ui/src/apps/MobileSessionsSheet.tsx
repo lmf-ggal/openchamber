@@ -49,7 +49,7 @@ import { toast } from '@/components/ui';
 import { getProjectLabel, normalizePath } from './mobilePaths';
 import { SessionSearchInput } from '@/components/session/SessionSearchInput';
 import { CHAT_DRAFT_PROJECT_ID, isChatDirectoryPath } from '@/lib/chatDirectories';
-import { getDescendantIds, partitionSidebarSessions } from '@/components/session/sidebar/list/sessionCollection';
+import { getDescendantIds, partitionSidebarSessions, useRecentSessionCollection } from '@/components/session/sidebar/list/sessionCollection';
 import { rankByLatestActivity, sortProjectsByOrder } from '@/components/session/sidebar/list/projectSort';
 import { collectSessionSubtreeIds, runSessionSubtreeAction, type SessionSubtreeAction } from '@/components/session/sidebar/sessions/sessionSubtreeActions';
 import { createSessionOwnershipIndex } from '@/components/session/sidebar/sessions/sessionOwnership';
@@ -226,6 +226,8 @@ const treeTextLeft = (depth: number): number => treeRowLeft(depth) + 20;
 /** Expansion keys of the "Pinned" and "In work" sections, alongside project ids. */
 const PINNED_SECTION_ID = 'openchamber:pinned';
 const WORK_SECTION_ID = 'openchamber:work';
+/** Expansion key for the optional cross-project Recent section. */
+const RECENT_SECTION_ID = 'openchamber:recent';
 // Chats are flat rows in both views, aligned with the timeline rows' text.
 const TIMELINE_CHAT_INDENT = 12;
 
@@ -819,6 +821,8 @@ export const MobileSessionsSheet: React.FC<MobileSessionsSheetProps> = ({ open, 
   // reordering is its only sort.
   const projectSortOrder = sidebarViewMode === 'timeline' ? 'manual' : storedProjectSortOrder;
   const setSidebarViewMode = useSessionDisplayStore((state) => state.setSidebarViewMode);
+  const showRecentSection = useSessionDisplayStore((state) => state.showRecentSection);
+  const setShowRecentSection = useSessionDisplayStore((state) => state.setShowRecentSection);
   const showWorkSection = useSessionDisplayStore((state) => state.showWorkSection);
   const setShowWorkSection = useSessionDisplayStore((state) => state.setShowWorkSection);
   const showPinnedSection = useSessionDisplayStore((state) => state.showPinnedSection);
@@ -826,6 +830,7 @@ export const MobileSessionsSheet: React.FC<MobileSessionsSheetProps> = ({ open, 
   const detailedZoneRows = useSessionDisplayStore((state) => state.detailedZoneRows);
   const setDetailedZoneRows = useSessionDisplayStore((state) => state.setDetailedZoneRows);
   const togglePinnedSession = useSessionPinnedStore((state) => state.toggle);
+  const recentShown = sidebarViewMode === 'projects' && showRecentSection;
     // Branch per directory, for the second line of timeline-style rows (In
   // work, the List view): worktree sessions read their worktree's
   // branch, root sessions the project root's checked-out branch, which only
@@ -1141,6 +1146,20 @@ export const MobileSessionsSheet: React.FC<MobileSessionsSheetProps> = ({ open, 
       ? orderSessionsByLifecycleScopes(sessions.filter((session) => workSessionIds.has(session.id) && !pinnedZoneSessionIds.has(session.id)), pinnedSessionIds, sessionOrderRanks)
       : [],
   }), [pinnedSessionIds, pinnedZoneSessionIds, sessionOrderRanks, sessions, workSessionIds]);
+  // Recent is the Tree view's optional cross-project list. Keep its last
+  // presented rows through the drawer's exit animation, then stop subscribing
+  // to high-frequency active-session changes while closed.
+  const liveRecentRoots = useRecentSessionCollection({
+    enabled: presented && recentShown,
+    isVSCode: false,
+    pinnedSessionIds,
+    sessionOrderRanks,
+    sessions: projectSessions,
+  });
+  const [heldRecentRoots, setHeldRecentRoots] = React.useState(liveRecentRoots);
+  if (presented && heldRecentRoots !== liveRecentRoots) setHeldRecentRoots(liveRecentRoots);
+  const recentRoots = (presented ? liveRecentRoots : heldRecentRoots)
+    .filter((session) => !workSessionIds.has(session.id));
   const chatsBucketKey = `${CHAT_DRAFT_PROJECT_ID}::${CHAT_DRAFT_PROJECT_ID}`;
   const chatRootCount = React.useMemo(
     () => sectionChatSessions.filter((session) => !getParentId(session)).length,
@@ -1568,6 +1587,12 @@ export const MobileSessionsSheet: React.FC<MobileSessionsSheetProps> = ({ open, 
     </DropdownMenuItem>
   );
 
+  const handleToggleRecentSection = () => {
+    const next = !showRecentSection;
+    setShowRecentSection(next);
+    void updateDesktopSettings({ sidebarShowRecentSection: next });
+  };
+
   const handleReorderDragEnd = (event: DragEndEvent) => {
     const { active, over } = event;
     if (!over || active.id === over.id) return;
@@ -1671,7 +1696,7 @@ export const MobileSessionsSheet: React.FC<MobileSessionsSheetProps> = ({ open, 
   // project tree never needs project root branches, so the timeline-style
   // rows request them themselves, the way the desktop sidebar's project
   // headers do.
-  const needsRootBranches = needsTimelineContext;
+  const needsRootBranches = needsTimelineContext || (recentShown && recentRoots.length > 0);
   React.useEffect(() => {
     if (!needsRootBranches || !git) return;
     for (const project of projectsMeta) {
@@ -1707,10 +1732,13 @@ export const MobileSessionsSheet: React.FC<MobileSessionsSheetProps> = ({ open, 
   // Timeline rows for ordered root sessions. The lanes of a run become one
   // run row at the first lane's position, the same collapse the grouped tree
   // and the desktop timeline make.
-  const toTimelineEntries = React.useCallback((roots: readonly Session[]): TimelineEntry[] => {
+  const toTimelineEntries = React.useCallback((
+    roots: readonly Session[],
+    contextById: ReadonlyMap<string, { project: ProjectMeta; branch: string | null; inSpace: boolean }> = timelineContextById,
+  ): TimelineEntry[] => {
     const listedRuns = new Set<string>();
     return roots.flatMap((session): TimelineEntry[] => {
-      const context = timelineContextById.get(session.id);
+      const context = contextById.get(session.id);
       if (!context) return [];
       const runKey = runIndex.runKeyBySessionId.get(session.id);
       const run = runKey ? runIndex.runs.get(runKey) : undefined;
@@ -1720,6 +1748,35 @@ export const MobileSessionsSheet: React.FC<MobileSessionsSheetProps> = ({ open, 
       return [{ kind: 'run', run, laneNodes: runLaneNodesByKey.get(run.key) ?? EMPTY_SESSION_NODES, project: context.project }];
     });
   }, [runIndex, runLaneNodesByKey, timelineContextById]);
+
+  const recentContextById = React.useMemo(() => {
+    const contexts = new Map<string, { project: ProjectMeta; branch: string | null; inSpace: boolean }>();
+    if (!recentShown || recentRoots.length === 0) return contexts;
+    const locations = resolveSidebarSessionLocations({
+      sessions: recentRoots,
+      projects: projectsMeta.map((project) => ({ id: project.id, normalizedPath: project.path, label: project.label })),
+      ownerBySessionId: sessionOwnership.bySessionId,
+      availableWorktreesByProject: new Map(projectsMeta.map((project) => [project.path, project.worktrees])),
+      gitBranches: gitBranchesByDirectory,
+      homeDirectory: null,
+      hideBranchMatchingProjectLabel: true,
+      spaceLabelById,
+    });
+    for (const session of recentRoots) {
+      const location = locations.get(session.id);
+      const project = location ? projectsMeta.find((candidate) => candidate.id === location.projectId) : null;
+      if (!project || !location) continue;
+      contexts.set(session.id, { project, branch: location.branchLabel, inSpace: location.inSpace });
+    }
+    return contexts;
+  }, [gitBranchesByDirectory, projectsMeta, recentRoots, recentShown, sessionOwnership, spaceLabelById]);
+  const recentEntries = React.useMemo(() => {
+    const roots = recentRoots.filter((session) => {
+      const project = recentContextById.get(session.id)?.project;
+      return !normalizedQuery || sessionMatchesQuery(session, project?.label ?? '', normalizedQuery);
+    });
+    return toTimelineEntries(roots, recentContextById);
+  }, [normalizedQuery, recentContextById, recentRoots, toTimelineEntries]);
 
   const timelineEntriesByProject = React.useMemo(() => {
     const byProject = new Map<string, TimelineEntry[]>();
@@ -1993,6 +2050,8 @@ export const MobileSessionsSheet: React.FC<MobileSessionsSheetProps> = ({ open, 
         <DropdownMenuSeparator />
         {renderMenuChoice('pinned', 'sessions.sidebar.header.displayMode.showPinned', showPinnedSection, handleTogglePinnedSection)}
         {sessionWorkEnabled ? renderMenuChoice('work', 'sessions.sidebar.header.displayMode.showWork', showWorkSection, handleToggleWorkSection) : null}
+        {/* Recent is Tree-only: the timeline already lists every session. */}
+        {sidebarViewMode === 'timeline' ? null : renderMenuChoice('recent', 'sessions.sidebar.header.displayMode.showRecent', showRecentSection, handleToggleRecentSection)}
         {/* List rows always carry two lines; Tree keeps Pinned and In work on one unless asked. */}
         {sidebarViewMode === 'timeline' ? null : renderMenuChoice('detailed', 'sessions.sidebar.header.displayMode.detailedZoneRows', detailedZoneRows, handleToggleDetailedZoneRows)}
         {canEditOrder ? (
@@ -2259,6 +2318,45 @@ export const MobileSessionsSheet: React.FC<MobileSessionsSheetProps> = ({ open, 
               })()}
               {renderZoneSection(PINNED_SECTION_ID, 'pushpin', t('sessions.sidebar.activity.pinnedTitle'), pinnedTimelineEntries)}
               {renderZoneSection(WORK_SECTION_ID, 'eye', t('sessions.sidebar.work.title'), workTimelineEntries)}
+              {!timelineActive && recentEntries.length > 0 ? (() => {
+                const recentExpanded = projectExpandedMap[RECENT_SECTION_ID] ?? true;
+                const recentLabel = t('sessions.sidebar.activity.recentTitle');
+                return (
+                  <section>
+                    <button
+                      type="button"
+                      className="flex min-h-12 w-full min-w-0 items-center gap-2 px-3 py-1.5 text-start transition-colors hover:bg-interactive-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset"
+                      onClick={() => {
+                        if (revealedRowId) {
+                          handleRowKeyRevealedChange(revealedRowId, false);
+                          return;
+                        }
+                        toggleProject(RECENT_SECTION_ID, recentExpanded);
+                      }}
+                      aria-expanded={recentExpanded}
+                      aria-label={recentExpanded
+                        ? t('sessions.sidebar.group.collapseAria', { label: recentLabel })
+                        : t('sessions.sidebar.group.expandAria', { label: recentLabel })}
+                      style={{ touchAction: 'manipulation' }}
+                    >
+                      <span className="flex size-8 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-[var(--surface-muted)] text-muted-foreground">
+                        <Icon name="history" className="size-4" />
+                      </span>
+                      <span className="block min-w-0 flex-1 truncate typography-ui-header font-semibold text-foreground">
+                        {recentLabel}
+                      </span>
+                      <span className="shrink-0 typography-micro text-muted-foreground tabular-nums">
+                        {recentEntries.length}
+                      </span>
+                    </button>
+                    <MobileDisclosure open={recentExpanded}>{() => (
+                      <div className="pb-2">
+                        {renderTimelineRows(`${RECENT_SECTION_ID}::${RECENT_SECTION_ID}`, recentEntries, true)}
+                      </div>
+                    )}</MobileDisclosure>
+                  </section>
+                );
+              })() : null}
               {orderedNodes.map((node) => {
                 const projectExpanded = isProjectExpanded(node);
                 const buckets = normalizedQuery

@@ -156,6 +156,8 @@ export function SidebarHeader(props: Props): React.ReactNode {
 
   const showChatsSection = useSessionDisplayStore((state) => state.showChatsSection);
   const setShowChatsSection = useSessionDisplayStore((state) => state.setShowChatsSection);
+  const showRecentSection = useSessionDisplayStore((state) => state.showRecentSection);
+  const setShowRecentSection = useSessionDisplayStore((state) => state.setShowRecentSection);
   const showWorkSection = useSessionDisplayStore((state) => state.showWorkSection);
   const setShowWorkSection = useSessionDisplayStore((state) => state.setShowWorkSection);
   const showPinnedSection = useSessionDisplayStore((state) => state.showPinnedSection);
@@ -281,6 +283,10 @@ export function SidebarHeader(props: Props): React.ReactNode {
         setShowPinnedSection(!showPinnedSection);
         void updateDesktopSettings({ sidebarShowPinnedSection: !showPinnedSection });
       })}
+      {!timelineView && !isSingleProjectMode ? toggleItem('sessions.sidebar.header.displayMode.showRecent', showRecentSection, () => {
+        setShowRecentSection(!showRecentSection);
+        void updateDesktopSettings({ sidebarShowRecentSection: !showRecentSection });
+      }) : null}
       {sessionWorkEnabled ? toggleItem('sessions.sidebar.header.displayMode.showWork', showWorkSection, () => {
         setShowWorkSection(!showWorkSection);
         void updateDesktopSettings({ sidebarShowWorkSection: !showWorkSection });

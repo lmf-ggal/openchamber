@@ -421,7 +421,7 @@ function SessionNodeItemComponent(props: SessionNodeItemProps): React.ReactNode 
   // stable between renders.
   const timelineProject = useProjectsStore(
     React.useCallback((state) => {
-      if (renderContext !== 'timeline-mixed' || !projectId) return null;
+      if ((renderContext !== 'timeline-mixed' && renderContext !== 'recent') || !projectId) return null;
       return state.projects.find((entry) => entry.id === projectId) ?? null;
     }, [renderContext, projectId]),
   );

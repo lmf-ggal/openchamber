@@ -292,6 +292,10 @@
       "scope": "profile",
       "perSurface": true
     },
+    "sidebarShowRecentSection": {
+      "scope": "profile",
+      "perSurface": true
+    },
     "sidebarShowWorkSection": {
       "scope": "profile",
       "perSurface": true
