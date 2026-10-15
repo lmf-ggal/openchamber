@@ -1,9 +1,11 @@
 import React from 'react';
 import { useSessionUIStore } from '@/sync/session-ui-store';
 import { useUIStore, type ContextPanelMode } from '@/stores/useUIStore';
-import { parseRoute, updateBrowserURL, hasRouteParams } from '@/lib/router';
+import { parseRoute, updateBrowserURL, hasRouteParams, RECENT_SESSION_TOKEN } from '@/lib/router';
 import { openSessionLink } from '@/lib/router/openSessionFromRoute';
 import type { RouteState, AppRouteState } from '@/lib/router';
+import { resolveRecentSession, shouldApplyResolvedRecentSession } from '@/lib/recentSession';
+import { getLastActiveSessionClearGeneration } from '@/sync/last-session-cache';
 import { resolveSettingsSlug } from '@/lib/settings/metadata';
 import { useDirectoryStore } from '@/stores/useDirectoryStore';
 
@@ -37,6 +39,7 @@ export function useRouter(): void {
   // Track initialization to avoid duplicate applies
   const initializedRef = React.useRef(false);
   const isApplyingRouteRef = React.useRef(false);
+  const routeGenerationRef = React.useRef(0);
 
   // Get store actions (stable references)
   const setSettingsDialogOpen = useUIStore((state) => state.setSettingsDialogOpen);
@@ -48,18 +51,59 @@ export function useRouter(): void {
    */
   const applyRoute = React.useCallback(
     async (route: RouteState) => {
-      if (isApplyingRouteRef.current) {
-        return;
-      }
-
+      const generation = ++routeGenerationRef.current;
       isApplyingRouteRef.current = true;
+      if (route.sessionId !== RECENT_SESSION_TOKEN) {
+        useSessionUIStore.getState().setRecentSessionRestorePending(false);
+      }
 
       try {
         // 1. Apply session first (may trigger async operations); a message
         // link also asks the session's timeline to show that message.
         if (route.sessionId) {
-          await openSessionLink(route.sessionId, route.messageId);
+          if (route.sessionId === RECENT_SESSION_TOKEN) {
+            const sessionIdBeforeResolution = useSessionUIStore.getState().currentSessionId;
+            const clearGenerationBeforeResolution = getLastActiveSessionClearGeneration();
+            const sessionStore = useSessionUIStore.getState();
+            sessionStore.setRecentSessionRestorePending(true);
+            // Mirrors the resolver's snapshot deadline: keep the overlay up for
+            // the full resolution window so a slow global list never flashes
+            // the boot draft in front of the restore (observed ≈31s on HA iOS).
+            const overlayValveTimeoutId = window.setTimeout(() => {
+              if (generation === routeGenerationRef.current) {
+                useSessionUIStore.getState().setRecentSessionRestorePending(false);
+              }
+            }, 60_000);
+            try {
+              const resolved = await resolveRecentSession();
+              if (generation !== routeGenerationRef.current) return;
+              const userClearedPointerDuringResolution =
+                getLastActiveSessionClearGeneration() !== clearGenerationBeforeResolution;
+              if (
+                userClearedPointerDuringResolution
+                || !shouldApplyResolvedRecentSession(
+                  sessionIdBeforeResolution,
+                  useSessionUIStore.getState().currentSessionId,
+                )
+              ) {
+                return;
+              }
+              if (resolved) {
+                await openSessionLink(resolved.sessionId, route.messageId);
+              }
+            } finally {
+              window.clearTimeout(overlayValveTimeoutId);
+              if (generation === routeGenerationRef.current) {
+                useSessionUIStore.getState().setRecentSessionRestorePending(false);
+              }
+            }
+          } else {
+            useSessionUIStore.getState().setRecentSessionRestorePending(false);
+            await openSessionLink(route.sessionId, route.messageId);
+          }
         }
+
+        if (generation !== routeGenerationRef.current) return;
 
         // 2. Handle settings first because it is a full-screen overlay.
         if (route.settingsPath) {
@@ -91,7 +135,9 @@ export function useRouter(): void {
           navigateToDiff(route.diffFile);
         }
       } finally {
-        isApplyingRouteRef.current = false;
+        if (generation === routeGenerationRef.current) {
+          isApplyingRouteRef.current = false;
+        }
       }
     },
     [setSettingsDialogOpen, setSettingsPage, navigateToDiff]
@@ -148,6 +194,9 @@ export function useRouter(): void {
     // Apply the initial route
     const initializeRoute = async () => {
       await applyRoute(route);
+
+      // Do not normalize the initial URL after a newer popstate route wins.
+      if (routeGenerationRef.current !== 1) return;
 
       // After applying, update URL to normalized form (use replaceState).
       // Use the parsed route values instead of an immediate store snapshot so
