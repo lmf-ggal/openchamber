@@ -2,6 +2,7 @@ import { create } from 'zustand';
 
 import { dict as enDict, type I18nKey } from './messages/en';
 import { DEFAULT_LOCALE, detectInitialLocale, type Locale, writeStoredLocale } from './runtime';
+import { isApplyingServerSettings, updateDesktopSettings } from '@/lib/persistence';
 
 export type I18nParams = Record<string, string | number | boolean | null | undefined>;
 export type I18nDictionary = Record<I18nKey, string>;
@@ -59,45 +60,44 @@ async function loadDictionary(locale: Locale): Promise<I18nDictionary> {
   return mod.dict;
 }
 
-export const useI18nStore = create<I18nState>()((set, get) => ({
+export const useI18nStore = create<I18nState>()(() => ({
   locale: DEFAULT_LOCALE,
   dictionary: enDict,
   loadingLocale: null,
-  setLocale: (locale) => {
-    const current = get();
-    const cached = dictionaries.get(locale);
-    if (current.locale === locale && current.loadingLocale !== locale && cached) {
-      return;
-    }
-
-    writeStoredLocale(locale);
-
-    set({
-      locale,
-      dictionary: cached ?? current.dictionary,
-      loadingLocale: cached ? null : locale,
-    });
-
-    if (cached) {
-      return;
-    }
-
-    void loadDictionary(locale).then((dictionary) => {
-      if (get().locale !== locale) {
-        return;
-      }
-      set({ dictionary, loadingLocale: null });
-    }).catch((error) => {
-      console.error(`[i18n] failed to load locale ${locale}`, error);
-      if (get().locale === locale) {
-        set({ dictionary: enDict, loadingLocale: null });
-      }
-    });
-  },
+  setLocale: (locale) => applyLocale(locale, true),
 }));
 
+/** Apply a locale locally and persist user changes through profile settings. */
+function applyLocale(locale: Locale, pushToServer: boolean): void {
+  const current = useI18nStore.getState();
+  const cached = dictionaries.get(locale);
+  if (current.locale === locale && current.loadingLocale !== locale && cached) return;
+
+  writeStoredLocale(locale);
+  if (pushToServer && !isApplyingServerSettings()) {
+    void updateDesktopSettings({ locale });
+  }
+  useI18nStore.setState({
+    locale,
+    dictionary: cached ?? current.dictionary,
+    loadingLocale: cached ? null : locale,
+  });
+  if (cached) return;
+
+  void loadDictionary(locale).then((dictionary) => {
+    if (useI18nStore.getState().locale !== locale) return;
+    useI18nStore.setState({ dictionary, loadingLocale: null });
+  }).catch((error) => {
+    console.error(`[i18n] failed to load locale ${locale}`, error);
+    if (useI18nStore.getState().locale === locale) {
+      useI18nStore.setState({ dictionary: enDict, loadingLocale: null });
+    }
+  });
+}
+
 export function initializeLocale(): void {
-  useI18nStore.getState().setLocale(detectInitialLocale());
+  // Initial locale selection is local-only; server settings hydrate later.
+  applyLocale(detectInitialLocale(), false);
 }
 
 export function formatMessage(dictionary: I18nDictionary, key: I18nKey, params?: I18nParams): string {

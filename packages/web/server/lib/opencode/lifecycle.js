@@ -51,10 +51,13 @@ const classifyOpenCodeVersion = (version) => {
     detail: `${OPENCODE_VERSION_REQUIREMENT_DETAIL}, found ${version.trim()}. Update OpenCode and start OpenChamber again.`,
   };
 };
-// Only the directory the user will open anyway. On OpenCode 2 the first
-// directory-scoped read boots that location's whole MCP fleet, so warming
-// other projects "just in case" started processes nobody asked for (#4018).
-const WARMUP_DIRECTORY_LIMIT = 1;
+// Upstream warms only the directory the user will open anyway: on OpenCode 2
+// the first directory-scoped read boots that location's whole MCP fleet, so
+// warming other projects "just in case" started processes nobody asked for
+// (#4018). The local install keeps warming the known projects at boot so the
+// first message of any project does not pay that initialisation either,
+// bounded to 4 to stay light on the 2-vCPU VM (local deviation, see patch/03).
+const WARMUP_DIRECTORY_LIMIT = 4;
 const WARMUP_REQUEST_TIMEOUT_MS = 30000;
 const MANAGED_STDERR_TAIL_MAX_BYTES = 32 * 1024;
 const HEALTH_FAILURE_DETAIL_MAX_LENGTH = 256;

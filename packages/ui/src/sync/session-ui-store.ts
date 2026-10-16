@@ -92,6 +92,7 @@ import { useSessionWorktreeStore } from "./session-worktree-store"
 import { getAttachedSessionDirectory } from "./session-worktree-contract"
 import { setSessionOpener } from "./session-navigation"
 import { getRuntimeKey, isTransientRuntimeKey } from "@/lib/runtime-switch"
+import { RECENT_SESSION_TOKEN } from "@/lib/router/types"
 import { clearLastActiveSession, persistLastActiveSession, readLastActiveSession } from "./last-session-cache"
 import { persistWorktreeTopology, readPersistedWorktreeTopology } from "./worktree-topology-cache"
 import { rememberRuntimeLiveStatus } from "./runtime-live-memory"
@@ -427,6 +428,8 @@ export type SessionUIState = {
   abortPromptSessionId: string | null
   abortPromptExpiresAt: number | null
   error: string | null
+  /** Keep the startup shell visible while `?session=recent` resolves. */
+  recentSessionRestorePending: boolean
   worktreeMetadata: Map<string, WorktreeMetadata>
   availableWorktrees: WorktreeMetadata[]
   availableWorktreesByProject: Map<string, WorktreeMetadata[]>
@@ -459,6 +462,7 @@ export type SessionUIState = {
   /** Arms "press Esc again to stop" for `sessionId`, the selected session by default. */
   armAbortPrompt: (durationMs?: number, sessionId?: string) => number | null
   clearError: () => void
+  setRecentSessionRestorePending: (value: boolean) => void
   markSessionAsOpenChamberCreated: (sessionId: string) => void
   isOpenChamberCreatedSession: (sessionId: string) => boolean
   initializeNewOpenChamberSession: (sessionId: string, agents: unknown[]) => void
@@ -1158,6 +1162,8 @@ export const useSessionUIStore = create<SessionUIState>()((set, get) => ({
   abortPromptSessionId: null,
   abortPromptExpiresAt: null,
   error: null,
+  recentSessionRestorePending: typeof window !== 'undefined'
+    && new URLSearchParams(window.location?.search ?? '').get('session') === RECENT_SESSION_TOKEN,
   worktreeMetadata: new Map(),
   availableWorktrees: flattenWorktreeMap(PERSISTED_WORKTREE_MAP),
   availableWorktreesByProject: PERSISTED_WORKTREE_MAP,
@@ -1674,6 +1680,8 @@ export const useSessionUIStore = create<SessionUIState>()((set, get) => ({
   },
 
   clearError: () => set({ error: null }),
+
+  setRecentSessionRestorePending: (value) => set({ recentSessionRestorePending: value }),
 
   markSessionAsOpenChamberCreated: (sessionId) =>
     set((s) => {

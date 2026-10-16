@@ -37,6 +37,9 @@ export const VALID_SETTINGS_SECTIONS: readonly SidebarSection[] = [
   'git-identities',
 ] as const;
 
+/** Resolve to the last session remembered by this OpenChamber runtime. */
+export const RECENT_SESSION_TOKEN = 'recent';
+
 /**
  * URL parameter names used for routing.
  */
