@@ -277,7 +277,7 @@ describe('OpenCode lifecycle', () => {
     expect(runtime.testState.lastOpenCodeError).toContain('1.18.32');
   });
 
-  it('warms only the last-used directory after a successful bootstrap', async () => {
+  it('warms the known directories after a successful bootstrap (local limit 4)', async () => {
     const root = await fs.mkdtemp(path.join(os.tmpdir(), 'oc-warm-'));
     const lastUsed = path.join(root, 'worktree-a');
     const otherProject = path.join(root, 'project-b');
@@ -308,9 +308,11 @@ describe('OpenCode lifecycle', () => {
       .map(([url, init]) => [String(url), init.headers['x-opencode-directory']]);
     // Each warmed directory boots its whole MCP fleet on OpenCode 2 (#4018).
     // v2 reads the directory from the header, and only location routes start
-    // one: `/api/session` is a global list.
+    // one: `/api/session` is a global list. The local install raises the
+    // upstream limit of 1 to 4 (patch/03), so both known projects are warmed.
     expect(warmups).toEqual([
       ['http://127.0.0.1:45678/api/location', encodeURIComponent(lastUsed)],
+      ['http://127.0.0.1:45678/api/location', encodeURIComponent(otherProject)],
     ]);
     // Server-side reads without a directory of their own go to the warmed one.
     expect(runtime.getDefaultOpenCodeDirectory()).toBe(lastUsed);

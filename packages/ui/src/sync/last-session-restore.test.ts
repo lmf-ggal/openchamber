@@ -117,6 +117,22 @@ describe('restoreLastActiveSession', () => {
             useGlobalSessionsStore.setState({ loadSessions: originalLoadSessions });
         }
     });
+    test('keeps the pointer when the session list is not authoritative yet', async () => {
+        // Web/iframe reloads race the first list load: a missing session in a
+        // not-ready snapshot must not destroy the pointer (that would turn
+        // every later reload into a blank draft).
+        useGlobalSessionsStore.setState({
+            hasLoaded: true,
+            status: 'error',
+            activeSessions: [session('ses_open')],
+            archivedSessions: [],
+        });
+        persistLastActiveSession(getRuntimeKey(), { sessionId: 'ses_deleted', directory: '/repo' });
+
+        expect(await restoreLastActiveSession({ refresh: false })).toBe('failed');
+        expect(selected).toEqual([]);
+        expect(readLastActiveSession(getRuntimeKey())).toEqual({ sessionId: 'ses_deleted', directory: '/repo' });
+    });
 });
 
 describe('beginLastSessionRestore', () => {
@@ -256,5 +272,5 @@ describe('beginLastSessionRestore', () => {
         } finally {
             list.restore();
         }
-    });
+});
 });

@@ -366,6 +366,13 @@ first list arrives. The seed is never authoritative: `hasLoaded` stays false and
 `status` is not `ready`, so authoritative cleanup and last-session restore wait
 for a complete load, which replaces the seed silently.
 
+The shared `?session=recent` route treats the persisted last-session pointer as
+a lookup hint, not proof that the session still exists. It waits for a ready
+global snapshot before selecting the matching active session; loading and
+transient failure preserve the pointer, and a user selection made while the
+snapshot is pending takes precedence. This keeps the URL usable as a cold-load
+entry point without letting an incomplete first list turn into a blank draft.
+
 **Isolated spaces.** With the feature on, the first global page carries the
 host's `spaces` mark: one entry per space with its name, the state of its last
 answer (`complete`, `partial`, `stale`, `unknown`), the registered project it

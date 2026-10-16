@@ -620,6 +620,21 @@ describe('settings runtime: per-surface profile keys', () => {
     }
   });
 
+  it('preserves another surface\'s per-surface preference across an unrelated write', async () => {
+    const { runtime, tempRoot, cleanup } = await createMergingRuntime();
+    try {
+      await runtime.persistSettings({ sidebarViewMode: 'projects' }, { surface: 'desktop' });
+      await runtime.persistSettings({ showReasoningTraces: true }, { surface: 'mobile' });
+
+      const stored = await readJson(path.join(tempRoot, 'preferences.json'));
+      expect(stored.fields.sidebarViewMode.surfaces.desktop.value).toBe('projects');
+      expect(stored.fields.showReasoningTraces.value).toBe(true);
+      expect((await runtime.readSettingsFromDisk({ surface: 'desktop' })).sidebarViewMode).toBe('projects');
+    } finally {
+      await cleanup();
+    }
+  });
+
   it('ignores an unknown surface header value and writes the base', async () => {
     const { runtime, tempRoot, cleanup } = await createMergingRuntime();
     try {
