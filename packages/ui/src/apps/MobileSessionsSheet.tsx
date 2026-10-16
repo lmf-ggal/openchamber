@@ -843,9 +843,8 @@ export const MobileSessionsSheet: React.FC<MobileSessionsSheetProps> = ({ open, 
   const setShowPinnedSection = useSessionDisplayStore((state) => state.setShowPinnedSection);
   const detailedZoneRows = useSessionDisplayStore((state) => state.detailedZoneRows);
   const setDetailedZoneRows = useSessionDisplayStore((state) => state.setDetailedZoneRows);
-  const togglePinnedSession = useSessionPinnedStore((state) => state.toggle);
   const recentShown = sidebarViewMode === 'projects' && showRecentSection;
-    // Branch per directory, for the second line of timeline-style rows (In
+  // Branch per directory, for the second line of timeline-style rows (In
   // work, the List view): worktree sessions read their worktree's
   // branch, root sessions the project root's checked-out branch, which only
   // the git store knows. Read while the sheet is shown.
