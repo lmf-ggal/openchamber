@@ -9,12 +9,16 @@ import {
 import { useGlobalSessionsStore } from '@/stores/useGlobalSessionsStore';
 import { useSessionPinnedStore } from '@/stores/useSessionPinnedStore';
 import { resolveGlobalSessionDirectory } from '@/stores/useGlobalSessionsStore';
+import { useGlobalSessionStatusStore } from '@/sync/global-session-status';
 import { normalizePath } from '../utils';
 import { isChatDirectoryPath } from '@/lib/chatDirectories';
 import { isBtwSession } from '@/lib/sessionBtwMetadata';
 import type { GlobalSessionStructure } from '@/stores/globalSessionStructure';
 import { countSyncPerformance } from '@/sync/performance-diagnostics';
 import type { SessionNode } from '../types';
+import { deriveRecentSessions } from '../recent/activitySections';
+
+const EMPTY_ACTIVE_SESSION_IDS: ReadonlySet<string> = new Set();
 
 type ProjectSidebarActiveSessionsArgs = {
   globalActiveSessions: Session[];
@@ -330,4 +334,35 @@ export const useSessionProjectCollection = ({
     sessions,
     rootSessions: structure.rootSessions,
   };
+};
+
+type UseRecentSessionCollectionArgs = {
+  enabled: boolean;
+  isVSCode: boolean;
+  pinnedSessionIds: Set<string>;
+  sessionOrderRanks: ReadonlyMap<string, number>;
+  sessions: Session[];
+};
+
+/** Recent is a high-frequency projection; its membership never changes project ownership. */
+export const useRecentSessionCollection = ({
+  enabled,
+  isVSCode,
+  pinnedSessionIds,
+  sessionOrderRanks,
+  sessions,
+}: UseRecentSessionCollectionArgs): Session[] => {
+  const activeSessionIds = useGlobalSessionStatusStore((state) => (
+    enabled && !isVSCode ? state.activeSessionIds : EMPTY_ACTIVE_SESSION_IDS
+  ));
+
+  return React.useMemo(() => {
+    if (!enabled || isVSCode) return [];
+    countSyncPerformance('recentCandidatesVisited', sessions.length);
+    return orderSessionsByLifecycleScopes(
+      deriveRecentSessions(sessions, activeSessionIds),
+      pinnedSessionIds,
+      sessionOrderRanks,
+    );
+  }, [activeSessionIds, enabled, isVSCode, pinnedSessionIds, sessionOrderRanks, sessions]);
 };
