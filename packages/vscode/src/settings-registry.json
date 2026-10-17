@@ -276,8 +276,7 @@
       "scope": "profile"
     },
     "sidebarViewMode": {
-      "scope": "profile",
-      "perSurface": true
+      "scope": "profile"
     },
     "sidebarProjectSortOrder": {
       "scope": "profile"
@@ -286,20 +285,16 @@
       "scope": "profile"
     },
     "sidebarShowChatsSection": {
-      "scope": "profile",
-      "perSurface": true
+      "scope": "profile"
     },
     "sidebarShowWorkSection": {
-      "scope": "profile",
-      "perSurface": true
+      "scope": "profile"
     },
     "sidebarShowPinnedSection": {
-      "scope": "profile",
-      "perSurface": true
+      "scope": "profile"
     },
     "sidebarDetailedZoneRows": {
-      "scope": "profile",
-      "perSurface": true
+      "scope": "profile"
     },
     "workStatusSectionOrder": {
       "scope": "profile"

@@ -99,19 +99,52 @@ export const serializePreferencesDocument = (fields: PreferenceFields): string =
   JSON.stringify({ version: PREFERENCES_DOCUMENT_VERSION, fields }, null, 2);
 
 /**
+ * The newest value a per-surface entry holds, or `undefined` when it holds
+ * none. Used only for a key the registry no longer marks per surface: the
+ * value such a key was given while it still was one must not vanish.
+ */
+const newestSurfaceValue = (entry: PreferenceField): unknown => {
+  let newest: unknown;
+  let newestStamp = -1;
+  for (const surfaceEntry of Object.values(entry.surfaces ?? {})) {
+    const stamp = parseStamp(surfaceEntry?.updatedAt);
+    if (stamp >= newestStamp) {
+      newestStamp = stamp;
+      newest = surfaceEntry?.value;
+    }
+  }
+  return newest;
+};
+
+/**
  * The plain key → value view of preference fields as one surface kind sees it:
  * that surface's own value first, the base value otherwise; a key with neither
  * is absent (the webview keeps what it holds, or its default).
+ *
+ * LOCAL PATCH (08): only a key the registry still marks per surface resolves
+ * through `surfaces`. A key that was stored per surface before losing the mark
+ * resolves to the base, and, while it holds no base yet, to the newest surface
+ * value it carries — so the owner's latest choice survives the change instead
+ * of falling back to each client's local default.
  */
 export const flattenPreferences = (fields: PreferenceFields, surface: SettingsSurface | null = null): Record<string, unknown> => {
   const values: Record<string, unknown> = {};
   for (const [key, entry] of Object.entries(fields)) {
-    const own = surface ? entry.surfaces?.[surface] : undefined;
-    if (own) {
-      values[key] = own.value;
-    } else if ('value' in entry) {
-      values[key] = entry.value;
+    if (isPerSurfaceSettingsKey(key)) {
+      const own = surface ? entry.surfaces?.[surface] : undefined;
+      if (own) {
+        values[key] = own.value;
+      } else if ('value' in entry) {
+        values[key] = entry.value;
+      }
+      continue;
     }
+    if ('value' in entry) {
+      values[key] = entry.value;
+      continue;
+    }
+    const migrated = newestSurfaceValue(entry);
+    if (migrated !== undefined) values[key] = migrated;
   }
   return values;
 };
@@ -150,10 +183,23 @@ export const buildPreferencesFields = (
       };
       continue;
     }
-    if (previous && 'value' in previous && sameValue(previous.value, value)) {
+    if (isPerSurfaceSettingsKey(key)) {
+      // A per-surface key written without a surface (a migration or the seed)
+      // sets the base and must keep the surfaces another kind stored.
+      if (previous && 'value' in previous && sameValue(previous.value, value)) {
+        fields[key] = previous;
+      } else {
+        fields[key] = { ...(previous ?? {}), value, updatedAt: now };
+      }
+      continue;
+    }
+    if (previous && 'value' in previous && sameValue(previous.value, value) && !previous.surfaces) {
       fields[key] = previous;
     } else {
-      fields[key] = { ...(previous ?? {}), value, updatedAt: now };
+      // LOCAL PATCH (08): a key the registry no longer marks per surface drops
+      // whatever `surfaces` it still carried, so the base is the single truth
+      // from the first write on (and the migration read stops applying).
+      fields[key] = { value, updatedAt: now };
     }
   }
   return fields;

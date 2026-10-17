@@ -623,13 +623,13 @@ describe('settings runtime: per-surface profile keys', () => {
   it('preserves another surface\'s per-surface preference across an unrelated write', async () => {
     const { runtime, tempRoot, cleanup } = await createMergingRuntime();
     try {
-      await runtime.persistSettings({ sidebarViewMode: 'projects' }, { surface: 'desktop' });
+      await runtime.persistSettings({ fontSize: 120 }, { surface: 'desktop' });
       await runtime.persistSettings({ showReasoningTraces: true }, { surface: 'mobile' });
 
       const stored = await readJson(path.join(tempRoot, 'preferences.json'));
-      expect(stored.fields.sidebarViewMode.surfaces.desktop.value).toBe('projects');
+      expect(stored.fields.fontSize.surfaces.desktop.value).toBe(120);
       expect(stored.fields.showReasoningTraces.value).toBe(true);
-      expect((await runtime.readSettingsFromDisk({ surface: 'desktop' })).sidebarViewMode).toBe('projects');
+      expect((await runtime.readSettingsFromDisk({ surface: 'desktop' })).fontSize).toBe(120);
     } finally {
       await cleanup();
     }
@@ -642,6 +642,65 @@ describe('settings runtime: per-surface profile keys', () => {
       const stored = await readJson(path.join(tempRoot, 'preferences.json'));
       expect(stored.fields.fontSize.value).toBe(90);
       expect(stored.fields.fontSize.surfaces).toBeUndefined();
+    } finally {
+      await cleanup();
+    }
+  });
+
+  // LOCAL PATCH (08): the sidebar display keys are global, not per surface.
+  it('writes a sidebar display key to the base so every surface reads the same value', async () => {
+    const { runtime, tempRoot, cleanup } = await createMergingRuntime();
+    try {
+      await runtime.persistSettings({ sidebarViewMode: 'projects' }, { surface: 'mobile' });
+
+      const stored = await readJson(path.join(tempRoot, 'preferences.json'));
+      expect(stored.fields.sidebarViewMode.value).toBe('projects');
+      expect(stored.fields.sidebarViewMode.surfaces).toBeUndefined();
+
+      // The phone's choice is the desktop's and the web's too.
+      expect((await runtime.readSettingsFromDisk({ surface: 'mobile' })).sidebarViewMode).toBe('projects');
+      expect((await runtime.readSettingsFromDisk({ surface: 'desktop' })).sidebarViewMode).toBe('projects');
+      expect((await runtime.readSettingsFromDisk({ surface: 'web' })).sidebarViewMode).toBe('projects');
+
+      // A change from the desktop moves every surface with it.
+      await runtime.persistSettings({ sidebarShowWorkSection: false }, { surface: 'desktop' });
+      const after = await readJson(path.join(tempRoot, 'preferences.json'));
+      expect(after.fields.sidebarShowWorkSection.value).toBe(false);
+      expect(after.fields.sidebarShowWorkSection.surfaces).toBeUndefined();
+      expect((await runtime.readSettingsFromDisk({ surface: 'mobile' })).sidebarShowWorkSection).toBe(false);
+    } finally {
+      await cleanup();
+    }
+  });
+
+  it('resolves a key that lost its per-surface mark to the newest stored surface value until the first write', async () => {
+    const { runtime, settingsFilePath, tempRoot, cleanup } = await createRuntime();
+    try {
+      await fsPromises.writeFile(settingsFilePath, JSON.stringify({}));
+      await fsPromises.writeFile(path.join(tempRoot, 'preferences.json'), JSON.stringify({
+        version: 1,
+        fields: {
+          sidebarViewMode: {
+            updatedAt: 0,
+            surfaces: {
+              mobile: { value: 'timeline', updatedAt: 1000 },
+              web: { value: 'projects', updatedAt: 2000 },
+            },
+          },
+        },
+      }));
+
+      // The newest surface value (web) is what every surface now sees.
+      expect((await runtime.readSettingsFromDisk({ surface: 'mobile' })).sidebarViewMode).toBe('projects');
+      expect((await runtime.readSettingsFromDisk({ surface: 'desktop' })).sidebarViewMode).toBe('projects');
+      expect((await runtime.readSettingsFromDisk()).sidebarViewMode).toBe('projects');
+
+      // The first write drops the stale surfaces and makes the base the truth.
+      await runtime.persistSettings({ sidebarViewMode: 'timeline' }, { surface: 'mobile' });
+      const stored = await readJson(path.join(tempRoot, 'preferences.json'));
+      expect(stored.fields.sidebarViewMode.value).toBe('timeline');
+      expect(stored.fields.sidebarViewMode.surfaces).toBeUndefined();
+      expect((await runtime.readSettingsFromDisk({ surface: 'desktop' })).sidebarViewMode).toBe('timeline');
     } finally {
       await cleanup();
     }
