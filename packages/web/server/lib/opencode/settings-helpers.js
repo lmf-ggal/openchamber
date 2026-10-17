@@ -360,6 +360,9 @@ export const createSettingsHelpers = (dependencies) => {
     if (typeof candidate.sidebarShowChatsSection === 'boolean') {
       result.sidebarShowChatsSection = candidate.sidebarShowChatsSection;
     }
+    if (typeof candidate.sidebarShowRecentSection === 'boolean') {
+      result.sidebarShowRecentSection = candidate.sidebarShowRecentSection;
+    }
     if (typeof candidate.sidebarShowWorkSection === 'boolean') {
       result.sidebarShowWorkSection = candidate.sidebarShowWorkSection;
     }
